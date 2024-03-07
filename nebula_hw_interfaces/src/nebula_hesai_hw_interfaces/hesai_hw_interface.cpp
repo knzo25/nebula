@@ -2338,7 +2338,7 @@ Status HesaiHwInterface::SetPtpConfig(
   std::vector<unsigned char> buf_vec;
   int len = 6;
   if (profile == 0) {
-  } else if (profile == 1) {
+  } else if (profile >= 1) {
     len = 3;
   } else {
     return Status::ERROR_1;
@@ -2912,6 +2912,7 @@ HesaiStatus HesaiHwInterface::GetLidarMonitorAsyncHttp(
 HesaiStatus HesaiHwInterface::CheckAndSetConfig(
   std::shared_ptr<HesaiSensorConfiguration> sensor_configuration, HesaiConfig hesai_config)
 {
+  using namespace std::chrono_literals;
 #ifdef WITH_DEBUG_STDOUT_HESAI_HW_INTERFACE
   std::cout << "Start CheckAndSetConfig(HesaiConfig)!!" << std::endl;
 #endif
@@ -2928,15 +2929,15 @@ HesaiStatus HesaiHwInterface::CheckAndSetConfig(
       auto return_mode_int = nebula::drivers::IntFromReturnModeHesai(
         sensor_configuration->return_mode, sensor_configuration->sensor_model);
       if (return_mode_int < 0) {
-        PrintError(
-          "Invalid Return Mode for this sensor. Please check your settings. Falling back to Dual "
-          "mode.");
+        PrintError("Invalid Return Mode for this sensor. Please check your settings. Falling back to Dual mode.");
         return_mode_int = 2;
       }
       SetReturnMode(return_mode_int);
     });
     t.join();
+    std::this_thread::sleep_for(100ms);
   }
+
   auto current_rotation_speed = hesai_config.spin_rate;
   if (sensor_configuration->rotation_speed != current_rotation_speed) {
     PrintInfo("current lidar rotation_speed: " + std::to_string(current_rotation_speed));
@@ -2946,10 +2947,12 @@ HesaiStatus HesaiHwInterface::CheckAndSetConfig(
     if (UseHttpSetSpinRate()) {
       SetSpinSpeedAsyncHttp(sensor_configuration->rotation_speed);
     } else {
+      PrintInfo("Setting up spin rate via TCP." + std::to_string(sensor_configuration->rotation_speed) );
       std::thread t(
         [this, sensor_configuration] { SetSpinRate(sensor_configuration->rotation_speed); });
       t.join();
     }
+    std::this_thread::sleep_for(100ms);
   }
 
   bool set_flg = false;
@@ -2989,9 +2992,11 @@ HesaiStatus HesaiHwInterface::CheckAndSetConfig(
         sensor_configuration->gnss_port);
     });
     t.join();
+    std::this_thread::sleep_for(100ms);
   }
 
-  if (sensor_configuration->sensor_model != SensorModel::HESAI_PANDARAT128) {
+  if (sensor_configuration->sensor_model != SensorModel::HESAI_PANDARAT128
+    && sensor_configuration->sensor_model != SensorModel::HESAI_PANDARQT128) {
     set_flg = true;
     auto sync_angle = static_cast<int>(hesai_config.sync_angle / 100);
     auto scan_phase = static_cast<int>(sensor_configuration->scan_phase);
@@ -3003,26 +3008,54 @@ HesaiStatus HesaiHwInterface::CheckAndSetConfig(
       PrintInfo("current lidar sync: " + std::to_string(hesai_config.sync));
       PrintInfo("current lidar sync_angle: " + std::to_string(sync_angle));
       PrintInfo("current configuration scan_phase: " + std::to_string(scan_phase));
-      std::thread t([this, sync_flg, scan_phase] { SetSyncAngle(sync_flg, scan_phase); });
+      std::thread t([this, sync_flg, scan_phase] {
+        SetSyncAngle(sync_flg, scan_phase);
+      });
       t.join();
+      std::this_thread::sleep_for(100ms);
     }
 
-    std::thread t([this] {
-      PrintInfo("Trying to set Clock source to PTP");
-      SetClockSource(HESAI_LIDAR_PTP_CLOCK_SOURCE);
-      PrintInfo("Trying to set PTP Config: IEEE 1588 v2, Domain: 0, Transport: UDP/IP");
-      SetPtpConfig(
-        PTP_PROFILE, PTP_DOMAIN_ID, PTP_NETWORK_TRANSPORT, PTP_LOG_ANNOUNCE_INTERVAL,
-        PTP_SYNC_INTERVAL, PTP_LOG_MIN_DELAY_INTERVAL);
+    std::thread t([this, sensor_configuration] {
+      if(sensor_configuration->sensor_model == SensorModel::HESAI_PANDAR40P
+       || sensor_configuration->sensor_model == SensorModel::HESAI_PANDAR64
+       || sensor_configuration->sensor_model == SensorModel::HESAI_PANDARQT64
+       || sensor_configuration->sensor_model == SensorModel::HESAI_PANDARXT32
+       || sensor_configuration->sensor_model == SensorModel::HESAI_PANDARXT32M) {
+        PrintInfo("Trying to set Clock source to PTP");
+        SetClockSource(HESAI_LIDAR_PTP_CLOCK_SOURCE);
+      }
+      std::ostringstream tmp_ostringstream;
+      tmp_ostringstream << "Trying to set PTP Config: " << sensor_configuration->ptp_profile
+                        << ", Domain: " << std::to_string(sensor_configuration->ptp_domain)
+                        << ", Transport: " << sensor_configuration->ptp_transport_type << " via TCP";
+      PrintInfo(tmp_ostringstream.str());
+      SetPtpConfig(static_cast<int>(sensor_configuration->ptp_profile),
+                   sensor_configuration->ptp_domain,
+                   static_cast<int>(sensor_configuration->ptp_transport_type),
+                   PTP_LOG_ANNOUNCE_INTERVAL,
+                   PTP_SYNC_INTERVAL,
+                   PTP_LOG_MIN_DELAY_INTERVAL
+      );
     });
     t.join();
-  } else {  // AT128 only supports PTP setup via HTTP
+    std::this_thread::sleep_for(100ms);
+  }
+  else { //AT128 only supports PTP setup via HTTP
     PrintInfo("Trying to set SyncAngle via HTTP");
-    SetSyncAngleSyncHttp(1, static_cast<int>(sensor_configuration->scan_phase));
-    PrintInfo("Trying to set PTP Config: IEEE 1588 v2, Domain: 0, Transport: UDP/IP via HTTP");
-    SetPtpConfigSyncHttp(
-      PTP_PROFILE, PTP_DOMAIN_ID, PTP_NETWORK_TRANSPORT, PTP_LOG_ANNOUNCE_INTERVAL,
-      PTP_SYNC_INTERVAL, PTP_LOG_MIN_DELAY_INTERVAL);
+    SetSyncAngleSyncHttp(1,
+                         static_cast<int>(sensor_configuration->scan_phase));
+    std::ostringstream tmp_ostringstream;
+    tmp_ostringstream << "Trying to set PTP Config: " << sensor_configuration->ptp_profile
+             << ", Domain: " << sensor_configuration->ptp_domain
+             << ", Transport: " << sensor_configuration->ptp_transport_type << " via HTTP";
+    PrintInfo(tmp_ostringstream.str());
+    SetPtpConfigSyncHttp(static_cast<int>(sensor_configuration->ptp_profile),
+                         sensor_configuration->ptp_domain,
+                         static_cast<int>(sensor_configuration->ptp_transport_type),
+                         PTP_LOG_ANNOUNCE_INTERVAL,
+                         PTP_SYNC_INTERVAL,
+                         PTP_LOG_MIN_DELAY_INTERVAL);
+
   }
 
 #ifdef WITH_DEBUG_STDOUT_HESAI_HW_INTERFACE
@@ -3030,6 +3063,7 @@ HesaiStatus HesaiHwInterface::CheckAndSetConfig(
 #endif
   return Status::WAITING_FOR_SENSOR_RESPONSE;
 }
+
 
 HesaiStatus HesaiHwInterface::CheckAndSetConfig(
   std::shared_ptr<HesaiSensorConfiguration> sensor_configuration,
@@ -3196,8 +3230,8 @@ int HesaiHwInterface::NebulaModelToHesaiModelNo(nebula::drivers::SensorModel mod
       return 38;
     case SensorModel::HESAI_PANDAR128_E3X:  // check required
       return 40;
-    case SensorModel::HESAI_PANDAR128_E4X:  // check required
-      return 40;
+    case SensorModel::HESAI_PANDAR128_E4X://check required
+      return 42;
     case SensorModel::HESAI_PANDARAT128:
       return 48;
     // All other vendors and unknown sensors
@@ -3244,6 +3278,9 @@ bool HesaiHwInterface::UseHttpSetSpinRate(int model)
     case 38:
       return false;
       break;
+    case 42:
+      return false;
+      break;
     case 48:
       return false;
       break;
@@ -3284,6 +3321,9 @@ bool HesaiHwInterface::UseHttpGetLidarMonitor(int model)
       return true;
       break;
     case 38:
+      return false;
+      break;
+    case 42:
       return false;
       break;
     case 48:
