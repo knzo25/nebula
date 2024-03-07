@@ -379,9 +379,9 @@ Status HesaiHwInterfaceRosWrapper::GetParameters(
     descriptor.dynamic_typing = false;
     descriptor.additional_constraints = "";
     this->declare_parameter<std::string>("ptp_transport_type", "");
-    sensor_configuration.ptp_transport_type =
-      nebula::drivers::PtpTransportTypeFromString(this->get_parameter("ptp_transport_type").as_string());
-    if(static_cast<int>(sensor_configuration.ptp_profile) > 0) {
+    sensor_configuration.ptp_transport_type = nebula::drivers::PtpTransportTypeFromString(
+      this->get_parameter("ptp_transport_type").as_string());
+    if (static_cast<int>(sensor_configuration.ptp_profile) > 0) {
       sensor_configuration.ptp_transport_type = nebula::drivers::PtpTransportType::L2;
     }
   }
@@ -397,13 +397,18 @@ Status HesaiHwInterfaceRosWrapper::GetParameters(
     sensor_configuration.ptp_domain = this->get_parameter("ptp_domain").as_int();
   }
 
-  if(sensor_configuration.ptp_profile == nebula::drivers::PtpProfile::PROFILE_UNKNOWN) {
-    RCLCPP_ERROR_STREAM(get_logger(), "Invalid PTP Profile Provided. Please use '1588v2', '802.1as' or 'automotive'");
+  if (sensor_configuration.ptp_profile == nebula::drivers::PtpProfile::PROFILE_UNKNOWN) {
+    RCLCPP_ERROR_STREAM(
+      get_logger(), "Invalid PTP Profile Provided. Please use '1588v2', '802.1as' or 'automotive'");
     return Status::SENSOR_CONFIG_ERROR;
   }
-  if(sensor_configuration.ptp_transport_type == nebula::drivers::PtpTransportType::UNKNOWN_TRANSPORT) {
-    RCLCPP_ERROR_STREAM(get_logger(),
-                        "Invalid PTP Transport Provided. Please use 'udp' or 'l2', 'udp' is only available when using the '1588v2' PTP Profile");
+  if (
+    sensor_configuration.ptp_transport_type ==
+    nebula::drivers::PtpTransportType::UNKNOWN_TRANSPORT) {
+    RCLCPP_ERROR_STREAM(
+      get_logger(),
+      "Invalid PTP Transport Provided. Please use 'udp' or 'l2', 'udp' is only available when "
+      "using the '1588v2' PTP Profile");
     return Status::SENSOR_CONFIG_ERROR;
   }
   if (sensor_configuration.sensor_model == nebula::drivers::SensorModel::UNKNOWN) {

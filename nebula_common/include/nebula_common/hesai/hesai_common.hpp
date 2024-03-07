@@ -71,7 +71,7 @@ struct HesaiCalibrationConfiguration : CalibrationConfigurationBase
       return Status::INVALID_CALIBRATION_FILE;
     }
     std::ostringstream ss;
-    ss << ifs.rdbuf(); // reading data
+    ss << ifs.rdbuf();  // reading data
     ifs.close();
     return LoadFromString(ss.str());
   }
@@ -85,14 +85,12 @@ struct HesaiCalibrationConfiguration : CalibrationConfigurationBase
     ss << calibration_content;
     std::string line;
     constexpr size_t expected_cols = 3;
-    while(std::getline(ss, line)) {
+    while (std::getline(ss, line)) {
       boost::char_separator<char> sep(",");
       boost::tokenizer<boost::char_separator<char>> tok(line, sep);
 
       std::vector<std::string> actual_tokens(tok.begin(), tok.end());
-      if (actual_tokens.size() < expected_cols
-        || actual_tokens.size() > expected_cols
-        ) {
+      if (actual_tokens.size() < expected_cols || actual_tokens.size() > expected_cols) {
         std::cerr << "Ignoring line with unexpected data:" << line << std::endl;
         continue;
       }
@@ -103,11 +101,11 @@ struct HesaiCalibrationConfiguration : CalibrationConfigurationBase
         float azimuth = std::stof(actual_tokens[2]);
         elev_angle_map[laser_id - 1] = elevation;
         azimuth_offset_map[laser_id - 1] = azimuth;
-        std::cout << "laser " << laser_id << ", elevation " << elevation << ", azimuth " << azimuth << std::endl;
-      } catch (const std::invalid_argument& ia) {
+        std::cout << "laser " << laser_id << ", elevation " << elevation << ", azimuth " << azimuth
+                  << std::endl;
+      } catch (const std::invalid_argument & ia) {
         continue;
       }
-
     }
     return Status::OK;
   }
@@ -137,14 +135,15 @@ struct HesaiCalibrationConfiguration : CalibrationConfigurationBase
   /// @param calibration_file path
   /// @param calibration_string calibration string
   /// @return Resulting status
-  inline nebula::Status SaveFileFromString(const std::string & calibration_file, const std::string & calibration_string)
+  inline nebula::Status SaveFileFromString(
+    const std::string & calibration_file, const std::string & calibration_string)
   {
     std::ofstream ofs(calibration_file);
     if (!ofs) {
       return Status::CANNOT_SAVE_FILE;
     }
     ofs << calibration_string;
-//    std::cout << calibration_string << std::endl;
+    //    std::cout << calibration_string << std::endl;
     ofs.close();
     return Status::OK;
   }
