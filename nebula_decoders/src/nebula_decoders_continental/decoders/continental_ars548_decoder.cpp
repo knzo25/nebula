@@ -317,8 +317,17 @@ bool ContinentalARS548Decoder::ParseObjectsListPacket(
     object_msg.status_movement = object.status_movement;
     object_msg.position_reference = object.position_reference;
 
-    object_msg.position.x = static_cast<double>(object.position_x.value());
-    object_msg.position.y = static_cast<double>(object.position_y.value());
+    float yaw = radar_status_.yaw;
+    float x = object.position_x.value();
+    float y = object.position_y.value();
+
+    if (std::abs(yaw) < M_PI_2 && std::abs(yaw) > 0.3 * M_PI_2) {
+      x -= (radar_status_.longitudinal + radar_status_.wheel_base);
+      y -= radar_status_.lateral;
+    }
+
+    object_msg.position.x = static_cast<double>(x);
+    object_msg.position.y = static_cast<double>(y);
     object_msg.position.z = static_cast<double>(object.position_z.value());
 
     object_msg.position_std.x = static_cast<double>(object.position_x_std.value());
