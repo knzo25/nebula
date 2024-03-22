@@ -13,6 +13,7 @@
 // limitations under the License.
 
 #include <nebula_ros/continental/continental_ars548_decoder_ros_wrapper.hpp>
+#include <tier4_autoware_utils/ros/msg_covariance.hpp>
 
 #include <pcl_conversions/pcl_conversions.h>
 
@@ -62,17 +63,20 @@ ContinentalARS548DriverRosWrapper::ContinentalARS548DriverRosWrapper(
   object_pointcloud_pub_ =
     this->create_publisher<sensor_msgs::msg::PointCloud2>("object_points", rclcpp::SensorDataQoS());
 
-  scan_raw_pub_ =
-    this->create_publisher<radar_msgs::msg::RadarScan>("scan_raw", rclcpp::SensorDataQoS());
+  scan_raw_pub_ = this->create_publisher<radar_msgs::msg::RadarScan>("scan_raw", 10);
 
-  objects_raw_pub_ =
-    this->create_publisher<radar_msgs::msg::RadarTracks>("objects_raw", rclcpp::SensorDataQoS());
+  objects_raw_pub_ = this->create_publisher<radar_msgs::msg::RadarTracks>("objects_raw", 10);
 
   objects_markers_pub_ =
     this->create_publisher<visualization_msgs::msg::MarkerArray>("marker_array", 10);
 
   diagnostics_pub_ =
     this->create_publisher<diagnostic_msgs::msg::DiagnosticArray>("diagnostics", 10);
+
+  autoware_tracked_objects_pub_ =
+    this->create_publisher<autoware_auto_perception_msgs::msg::TrackedObjects>(
+      "autoware_tracked_objects", 10);
+  ;
 }
 
 void ContinentalARS548DriverRosWrapper::ReceivePacketsMsgCallback(
@@ -291,6 +295,13 @@ void ContinentalARS548DriverRosWrapper::ObjectListCallback(
     objects_markers_pub_->get_intra_process_subscription_count() > 0) {
     auto marker_array_msg = ConvertToMarkers(*msg);
     objects_markers_pub_->publish(std::move(marker_array_msg));
+  }
+
+  if (
+    autoware_tracked_objects_pub_->get_subscription_count() > 0 ||
+    autoware_tracked_objects_pub_->get_intra_process_subscription_count() > 0) {
+    auto autoware_tracked_object_msg = ConvertToAutowareTrackedObjects(*msg);
+    autoware_tracked_objects_pub_->publish(std::move(autoware_tracked_object_msg));
   }
 
   if (
@@ -586,6 +597,9 @@ radar_msgs::msg::RadarTracks ContinentalARS548DriverRosWrapper::ConvertToRadarTr
       track_msg.classification = PEDESTRIAN_ID;
     }
 
+    // if (track_msg.classification = UNKNOWN_ID)
+    //   continue;
+
     track_msg.position_covariance[0] =
       static_cast<float>(object.position_std.x * object.position_std.x);
     track_msg.position_covariance[1] = object.position_covariance_xy;
@@ -624,6 +638,165 @@ radar_msgs::msg::RadarTracks ContinentalARS548DriverRosWrapper::ConvertToRadarTr
     track_msg.size_covariance[5] = INVALID_COVARIANCE;
 
     output_msg.tracks.emplace_back(track_msg);
+  }
+
+  return output_msg;
+}
+
+autoware_auto_perception_msgs::msg::TrackedObjects
+ContinentalARS548DriverRosWrapper::ConvertToAutowareTrackedObjects(
+  const continental_msgs::msg::ContinentalArs548ObjectList & msg)
+{
+  using autoware_auto_perception_msgs::msg::ObjectClassification;
+  using autoware_auto_perception_msgs::msg::Shape;
+  autoware_auto_perception_msgs::msg::TrackedObjects output_msg;
+  output_msg.objects.reserve(msg.objects.size());
+  output_msg.header = msg.header;
+
+  auto convert_pose_covariance_matrix =
+    [](const continental_msgs::msg::ContinentalArs548Object & continental_object)
+    -> std::array<double, 36> {
+    using POSE_IDX = tier4_autoware_utils::xyzrpy_covariance_index::XYZRPY_COV_IDX;
+    std::array<double, 36> pose_covariance{};
+    pose_covariance[POSE_IDX::X_X] =
+      continental_object.position_std.x * continental_object.position_std.x;
+    pose_covariance[POSE_IDX::X_Y] = continental_object.position_covariance_xy;
+    pose_covariance[POSE_IDX::X_Z] = 0.f;
+    pose_covariance[POSE_IDX::Y_X] = continental_object.position_covariance_xy;
+    pose_covariance[POSE_IDX::Y_Y] =
+      continental_object.position_std.y * continental_object.position_std.y;
+    pose_covariance[POSE_IDX::Y_Z] = 0.f;
+    pose_covariance[POSE_IDX::Z_X] = 0.f;
+    pose_covariance[POSE_IDX::Z_Y] = 0.f;
+    pose_covariance[POSE_IDX::Z_Z] =
+      continental_object.position_std.z * continental_object.position_std.z;
+    return pose_covariance;
+  };
+
+  auto convert_twist_covariance_matrix =
+    [](const continental_msgs::msg::ContinentalArs548Object & continental_object)
+    -> std::array<double, 36> {
+    using POSE_IDX = tier4_autoware_utils::xyzrpy_covariance_index::XYZRPY_COV_IDX;
+    std::array<double, 36> twist_covariance{};
+    twist_covariance[POSE_IDX::X_X] =
+      continental_object.absolute_velocity_std.x * continental_object.absolute_velocity_std.x;
+    twist_covariance[POSE_IDX::X_Y] = continental_object.absolute_velocity_covariance_xy;
+    twist_covariance[POSE_IDX::X_Z] = 0.f;
+    twist_covariance[POSE_IDX::Y_X] = continental_object.absolute_velocity_covariance_xy;
+    twist_covariance[POSE_IDX::Y_Y] =
+      continental_object.absolute_velocity_std.y * continental_object.absolute_velocity_std.y;
+    twist_covariance[POSE_IDX::Y_Z] = 0.f;
+    twist_covariance[POSE_IDX::Z_X] = 0.f;
+    twist_covariance[POSE_IDX::Z_Y] = 0.f;
+    twist_covariance[POSE_IDX::Z_Z] =
+      continental_object.absolute_velocity_std.z * continental_object.absolute_velocity_std.z;
+    return twist_covariance;
+  };
+
+  auto convert_acceleration_covariance_matrix =
+    [](const continental_msgs::msg::ContinentalArs548Object & continental_object)
+    -> std::array<double, 36> {
+    using POSE_IDX = tier4_autoware_utils::xyzrpy_covariance_index::XYZRPY_COV_IDX;
+    std::array<double, 36> acceleration_covariance{};
+    acceleration_covariance[POSE_IDX::X_X] = continental_object.absolute_acceleration_std.x *
+                                             continental_object.absolute_acceleration_std.x;
+    acceleration_covariance[POSE_IDX::X_Y] = continental_object.absolute_acceleration_covariance_xy;
+    acceleration_covariance[POSE_IDX::X_Z] = 0.f;
+    acceleration_covariance[POSE_IDX::Y_X] = continental_object.absolute_acceleration_covariance_xy;
+    acceleration_covariance[POSE_IDX::Y_Y] = continental_object.absolute_acceleration_std.y *
+                                             continental_object.absolute_acceleration_std.y;
+    acceleration_covariance[POSE_IDX::Y_Z] = 0.f;
+    acceleration_covariance[POSE_IDX::Z_X] = 0.f;
+    acceleration_covariance[POSE_IDX::Z_Y] = 0.f;
+    acceleration_covariance[POSE_IDX::Z_Z] = continental_object.absolute_acceleration_std.z *
+                                             continental_object.absolute_acceleration_std.z;
+    return acceleration_covariance;
+  };
+
+  autoware_auto_perception_msgs::msg::TrackedObject output_object;
+  for (const auto & input_object : msg.objects) {
+    output_object.object_id.uuid[0] = static_cast<uint8_t>(input_object.object_id & 0xff);
+    output_object.object_id.uuid[1] = static_cast<uint8_t>((input_object.object_id >> 8) & 0xff);
+    output_object.object_id.uuid[2] = static_cast<uint8_t>((input_object.object_id >> 16) & 0xff);
+    output_object.object_id.uuid[3] = static_cast<uint8_t>((input_object.object_id >> 24) & 0xff);
+
+    const double half_length = 0.5 * input_object.shape_length_edge_mean;
+    const double half_width = 0.5 * input_object.shape_width_edge_mean;
+    // There are 9 possible reference points. In the case of an invalid reference point, we fall
+    // back to the center
+    const int reference_index = std::min<int>(input_object.position_reference, 8);
+    const double & yaw = input_object.orientation;
+    auto & pose = output_object.kinematics.pose_with_covariance.pose;
+    pose.position.x = input_object.position.x +
+                      std::cos(yaw) * half_length * reference_to_center_[reference_index][0] -
+                      std::sin(yaw) * half_width * reference_to_center_[reference_index][1];
+    pose.position.y = input_object.position.y +
+                      std::sin(yaw) * half_length * reference_to_center_[reference_index][0] +
+                      std::cos(yaw) * half_width * reference_to_center_[reference_index][1];
+    pose.position.z = input_object.position.z;
+    pose.orientation.w = std::cos(0.5 * input_object.orientation);
+    pose.orientation.z = std::sin(0.5 * input_object.orientation);
+
+    output_object.kinematics.twist_with_covariance.twist.angular.z =
+      input_object.orientation_rate_mean;
+    output_object.kinematics.acceleration_with_covariance.accel.linear =
+      input_object.absolute_acceleration;
+
+    // The tracks have the velocity in their own frame !
+    auto & local_velocity = sensor_cfg_ptr_->object_frame == sensor_cfg_ptr_->base_frame
+                              ? input_object.absolute_velocity
+                              : input_object.relative_velocity;
+    output_object.kinematics.twist_with_covariance.twist.linear.x =
+      local_velocity.x * std::cos(yaw) + local_velocity.y * std::sin(yaw);
+    output_object.kinematics.twist_with_covariance.twist.linear.y =
+      local_velocity.x * std::sin(-yaw) + local_velocity.y * std::cos(yaw);
+
+    output_object.existence_probability = input_object.existence_probability;
+    output_object.shape.type = Shape::BOUNDING_BOX;
+    output_object.shape.dimensions.x = input_object.shape_length_edge_mean;
+    output_object.shape.dimensions.y = input_object.shape_width_edge_mean;
+    output_object.shape.dimensions.z = 1.f;
+
+    output_object.kinematics.is_stationary = input_object.status_movement == 1;
+    output_object.kinematics.orientation_availability = true;
+
+    ObjectClassification classification;
+    classification.probability = 1.0;
+
+    uint8_t max_score = input_object.classification_unknown;
+    classification.label = ObjectClassification::UNKNOWN;
+
+    if (input_object.classification_car > max_score) {
+      max_score = input_object.classification_car;
+      classification.label = ObjectClassification::CAR;
+    }
+    if (input_object.classification_truck > max_score) {
+      max_score = input_object.classification_truck;
+      classification.label = ObjectClassification::TRUCK;
+    }
+    if (input_object.classification_motorcycle > max_score) {
+      max_score = input_object.classification_motorcycle;
+      classification.label = ObjectClassification::MOTORCYCLE;
+    }
+    if (input_object.classification_bicycle > max_score) {
+      max_score = input_object.classification_bicycle;
+      classification.label = ObjectClassification::BICYCLE;
+    }
+    if (input_object.classification_pedestrian > max_score) {
+      max_score = input_object.classification_pedestrian;
+      classification.label = ObjectClassification::PEDESTRIAN;
+    }
+
+    output_object.classification.emplace_back(classification);
+
+    output_object.kinematics.pose_with_covariance.covariance =
+      convert_pose_covariance_matrix(input_object);
+    output_object.kinematics.twist_with_covariance.covariance =
+      convert_twist_covariance_matrix(input_object);
+    output_object.kinematics.acceleration_with_covariance.covariance =
+      convert_acceleration_covariance_matrix(input_object);
+
+    output_msg.objects.emplace_back(output_object);
   }
 
   return output_msg;
@@ -756,10 +929,10 @@ visualization_msgs::msg::MarkerArray ContinentalARS548DriverRosWrapper::ConvertT
     object_dynamics_ss << std::fixed << std::setprecision(3) << "ID=" << object.object_id
                        << "\nyaw=" << object.orientation
                        << "\nyaw_rate=" << object.orientation_rate_mean
-                       << "\nvx=" << object.absolute_velocity.x
-                       << "\nvy=" << object.absolute_velocity.y
-                       << "\nax=" << object.absolute_acceleration.x
-                       << "\nay=" << object.absolute_acceleration.y;
+                       << "\navx=" << object.absolute_velocity.x
+                       << "\navy=" << object.absolute_velocity.y
+                       << "\nrvx=" << object.relative_velocity.x
+                       << "\nrvy=" << object.relative_velocity.y;
 
     text_marker.ns = "object_dynamics";
     text_marker.text = object_dynamics_ss.str();

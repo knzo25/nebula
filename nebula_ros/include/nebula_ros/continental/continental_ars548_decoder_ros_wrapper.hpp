@@ -25,6 +25,7 @@
 #include <rclcpp/rclcpp.hpp>
 #include <rclcpp_components/register_node_macro.hpp>
 
+#include <autoware_auto_perception_msgs/msg/tracked_objects.hpp>
 #include <continental_msgs/msg/continental_ars548_detection.hpp>
 #include <continental_msgs/msg/continental_ars548_detection_list.hpp>
 #include <continental_msgs/msg/continental_ars548_object.hpp>
@@ -61,6 +62,8 @@ class ContinentalARS548DriverRosWrapper final : public rclcpp::Node, NebulaDrive
   rclcpp::Publisher<radar_msgs::msg::RadarTracks>::SharedPtr objects_raw_pub_;
   rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr objects_markers_pub_;
   rclcpp::Publisher<diagnostic_msgs::msg::DiagnosticArray>::SharedPtr diagnostics_pub_;
+  rclcpp::Publisher<autoware_auto_perception_msgs::msg::TrackedObjects>::SharedPtr
+    autoware_tracked_objects_pub_;
 
   std::unordered_set<int> previous_ids_;
 
@@ -151,6 +154,12 @@ public:
   /// @param msg The ARS548 object list msg
   /// @return Resulting RadarTracks msg
   radar_msgs::msg::RadarTracks ConvertToRadarTracks(
+    const continental_msgs::msg::ContinentalArs548ObjectList & msg);
+
+  /// @brief Convert ARS548 objects to Autoware's TrackedObjects msg
+  /// @param msg The ARS548 object list msg
+  /// @return Resulting TrackedObjects msg
+  autoware_auto_perception_msgs::msg::TrackedObjects ConvertToAutowareTrackedObjects(
     const continental_msgs::msg::ContinentalArs548ObjectList & msg);
 
   /// @brief Convert ARS548 objects to a standard MarkerArray msg
