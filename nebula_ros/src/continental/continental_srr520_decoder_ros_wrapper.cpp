@@ -13,6 +13,7 @@
 // limitations under the License.
 
 #include <nebula_ros/continental/continental_srr520_decoder_ros_wrapper.hpp>
+#include <tier4_autoware_utils/ros/msg_covariance.hpp>
 
 #include <pcl_conversions/pcl_conversions.h>
 
@@ -78,6 +79,10 @@ ContinentalSRR520DriverRosWrapper::ContinentalSRR520DriverRosWrapper(
 
   objects_markers_pub_ =
     this->create_publisher<visualization_msgs::msg::MarkerArray>("marker_array", 10);
+
+  autoware_tracked_objects_pub_ =
+    this->create_publisher<autoware_auto_perception_msgs::msg::TrackedObjects>(
+      "autoware_tracked_objects", 10);
 }
 
 void ContinentalSRR520DriverRosWrapper::ReceivePacketsMsgCallback(
@@ -298,6 +303,13 @@ void ContinentalSRR520DriverRosWrapper::ObjectListCallback(
   }
 
   if (
+    autoware_tracked_objects_pub_->get_subscription_count() > 0 ||
+    autoware_tracked_objects_pub_->get_intra_process_subscription_count() > 0) {
+    auto autoware_tracked_object_msg = ConvertToAutowareTrackedObjects(*msg);
+    autoware_tracked_objects_pub_->publish(std::move(autoware_tracked_object_msg));
+  }
+
+  if (
     object_list_pub_->get_subscription_count() > 0 ||
     object_list_pub_->get_intra_process_subscription_count() > 0) {
     object_list_pub_->publish(std::move(msg));
@@ -471,6 +483,132 @@ radar_msgs::msg::RadarTracks ContinentalSRR520DriverRosWrapper::ConvertToRadarTr
     track_msg.size_covariance[5] = INVALID_COVARIANCE;
 
     output_msg.tracks.emplace_back(track_msg);
+  }
+
+  return output_msg;
+}
+
+autoware_auto_perception_msgs::msg::TrackedObjects
+ContinentalSRR520DriverRosWrapper::ConvertToAutowareTrackedObjects(
+  const continental_msgs::msg::ContinentalSrr520ObjectList & msg)
+{
+  using autoware_auto_perception_msgs::msg::ObjectClassification;
+  using autoware_auto_perception_msgs::msg::Shape;
+  autoware_auto_perception_msgs::msg::TrackedObjects output_msg;
+  output_msg.objects.reserve(msg.objects.size());
+  output_msg.header = msg.header;
+
+  auto convert_pose_covariance_matrix =
+    [](const continental_msgs::msg::ContinentalSrr520Object & continental_object)
+    -> std::array<double, 36> {
+    using POSE_IDX = tier4_autoware_utils::xyzrpy_covariance_index::XYZRPY_COV_IDX;
+    std::array<double, 36> pose_covariance{};
+    pose_covariance[POSE_IDX::X_X] = continental_object.dist_x_std * continental_object.dist_x_std;
+    pose_covariance[POSE_IDX::X_Y] = 0.f;
+    pose_covariance[POSE_IDX::X_Z] = 0.f;
+    pose_covariance[POSE_IDX::Y_X] = 0.f;
+    pose_covariance[POSE_IDX::Y_Y] = continental_object.dist_y_std * continental_object.dist_y_std;
+    pose_covariance[POSE_IDX::Y_Z] = 0.f;
+    pose_covariance[POSE_IDX::Z_X] = 0.f;
+    pose_covariance[POSE_IDX::Z_Y] = 0.f;
+    pose_covariance[POSE_IDX::Z_Z] = 0.f;
+    return pose_covariance;
+  };
+
+  auto convert_twist_covariance_matrix =
+    [](const continental_msgs::msg::ContinentalSrr520Object & continental_object)
+    -> std::array<double, 36> {
+    using POSE_IDX = tier4_autoware_utils::xyzrpy_covariance_index::XYZRPY_COV_IDX;
+    std::array<double, 36> twist_covariance{};
+    twist_covariance[POSE_IDX::X_X] =
+      continental_object.v_abs_x_std * continental_object.v_abs_x_std;
+    twist_covariance[POSE_IDX::X_Y] = 0.f;
+    twist_covariance[POSE_IDX::X_Z] = 0.f;
+    twist_covariance[POSE_IDX::Y_X] = 0.f;
+    twist_covariance[POSE_IDX::Y_Y] =
+      continental_object.v_abs_y_std * continental_object.v_abs_y_std;
+    twist_covariance[POSE_IDX::Y_Z] = 0.f;
+    twist_covariance[POSE_IDX::Z_X] = 0.f;
+    twist_covariance[POSE_IDX::Z_Y] = 0.f;
+    twist_covariance[POSE_IDX::Z_Z] = 0.f;
+    return twist_covariance;
+  };
+
+  auto convert_acceleration_covariance_matrix =
+    [](const continental_msgs::msg::ContinentalSrr520Object & continental_object)
+    -> std::array<double, 36> {
+    using POSE_IDX = tier4_autoware_utils::xyzrpy_covariance_index::XYZRPY_COV_IDX;
+    std::array<double, 36> acceleration_covariance{};
+    acceleration_covariance[POSE_IDX::X_X] =
+      continental_object.a_abs_x_std * continental_object.a_abs_x_std;
+    acceleration_covariance[POSE_IDX::X_Y] = 0.f;
+    acceleration_covariance[POSE_IDX::X_Z] = 0.f;
+    acceleration_covariance[POSE_IDX::Y_X] = 0.f;
+    acceleration_covariance[POSE_IDX::Y_Y] =
+      continental_object.a_abs_y_std * continental_object.a_abs_y_std;
+    acceleration_covariance[POSE_IDX::Y_Z] = 0.f;
+    acceleration_covariance[POSE_IDX::Z_X] = 0.f;
+    acceleration_covariance[POSE_IDX::Z_Y] = 0.f;
+    acceleration_covariance[POSE_IDX::Z_Z] = 0.f;
+    return acceleration_covariance;
+  };
+
+  autoware_auto_perception_msgs::msg::TrackedObject output_object;
+  for (const auto & input_object : msg.objects) {
+    if (!input_object.box_valid || input_object.object_status == 0) {
+      continue;
+    }
+
+    output_object.object_id.uuid[0] = static_cast<uint8_t>(input_object.object_id & 0xff);
+    output_object.object_id.uuid[1] = static_cast<uint8_t>((input_object.object_id >> 8) & 0xff);
+    output_object.object_id.uuid[2] = static_cast<uint8_t>((input_object.object_id >> 16) & 0xff);
+    output_object.object_id.uuid[3] = static_cast<uint8_t>((input_object.object_id >> 24) & 0xff);
+
+    const double half_length = 0.5 * input_object.box_length;
+    const double half_width = 0.5 * input_object.box_width;
+    // There are 9 possible reference points. In the case of an invalid reference point, we fall
+    // back to the center
+    const double & yaw = input_object.orientation;
+    auto & pose = output_object.kinematics.pose_with_covariance.pose;
+    pose.position.x = input_object.dist_x;
+    pose.position.y = input_object.dist_y;
+    pose.position.z = 0.f;
+    pose.orientation.w = std::cos(0.5 * input_object.orientation);
+    pose.orientation.z = std::sin(0.5 * input_object.orientation);
+
+    output_object.kinematics.acceleration_with_covariance.accel.linear.x = input_object.a_abs_x;
+    output_object.kinematics.acceleration_with_covariance.accel.linear.y = input_object.a_abs_y;
+
+    // The tracks have the velocity in their own frame !
+    output_object.kinematics.twist_with_covariance.twist.linear.x =
+      input_object.v_abs_x * std::cos(yaw) + input_object.v_abs_y * std::sin(yaw);
+    output_object.kinematics.twist_with_covariance.twist.linear.y =
+      input_object.v_abs_x * std::sin(-yaw) + input_object.v_abs_y * std::cos(yaw);
+
+    output_object.existence_probability = 1.f;
+    output_object.shape.type = Shape::BOUNDING_BOX;
+    output_object.shape.dimensions.x = input_object.box_length;
+    output_object.shape.dimensions.y = input_object.box_width;
+    output_object.shape.dimensions.z = 1.f;
+
+    output_object.kinematics.is_stationary = false;
+    output_object.kinematics.orientation_availability = true;
+
+    ObjectClassification classification;
+    classification.probability = 1.0;
+
+    classification.label = ObjectClassification::UNKNOWN;
+
+    output_object.classification.emplace_back(classification);
+
+    output_object.kinematics.pose_with_covariance.covariance =
+      convert_pose_covariance_matrix(input_object);
+    output_object.kinematics.twist_with_covariance.covariance =
+      convert_twist_covariance_matrix(input_object);
+    output_object.kinematics.acceleration_with_covariance.covariance =
+      convert_acceleration_covariance_matrix(input_object);
+
+    output_msg.objects.emplace_back(output_object);
   }
 
   return output_msg;

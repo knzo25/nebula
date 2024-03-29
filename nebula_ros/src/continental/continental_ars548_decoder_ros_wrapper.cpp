@@ -76,7 +76,6 @@ ContinentalARS548DriverRosWrapper::ContinentalARS548DriverRosWrapper(
   autoware_tracked_objects_pub_ =
     this->create_publisher<autoware_auto_perception_msgs::msg::TrackedObjects>(
       "autoware_tracked_objects", 10);
-  ;
 }
 
 void ContinentalARS548DriverRosWrapper::ReceivePacketsMsgCallback(
