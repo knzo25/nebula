@@ -1,16 +1,15 @@
 #pragma once
 
 #include "boost_tcp_driver/tcp_driver.hpp"
-
 #include "nebula_common/hesai/hesai_common.hpp"
 #include "nebula_common/nebula_common.hpp"
 #include "nebula_common/nebula_status.hpp"
 #include "nebula_hw_interfaces/nebula_hw_interfaces_hesai/hesai_hw_interface.hpp"
+#include "nebula_ros/common/mt_queue.hpp"
+#include "nebula_ros/common/parameter_descriptors.hpp"
 #include "nebula_ros/hesai/decoder_wrapper.hpp"
 #include "nebula_ros/hesai/hw_interface_wrapper.hpp"
 #include "nebula_ros/hesai/hw_monitor_wrapper.hpp"
-#include "nebula_ros/common/mt_queue.hpp"
-#include "nebula_ros/common/parameter_descriptors.hpp"
 
 #include <ament_index_cpp/get_package_prefix.hpp>
 #include <rclcpp/rclcpp.hpp>
@@ -37,19 +36,19 @@ namespace ros
 class HesaiRosWrapper final : public rclcpp::Node
 {
 public:
-  explicit HesaiRosWrapper(const rclcpp::NodeOptions& options);
+  explicit HesaiRosWrapper(const rclcpp::NodeOptions & options);
   ~HesaiRosWrapper() noexcept {};
 
   /// @brief Get current status of this driver
   /// @return Current status
   Status GetStatus();
 
-  /// @brief Start point cloud streaming (Call CloudInterfaceStart of HwInterface)
+  /// @brief Start point cloud streaming (Call SensorInterfaceStart of HwInterface)
   /// @return Resulting status
   Status StreamStart();
 
 private:
-  void ReceiveCloudPacketCallback(std::vector<uint8_t>& packet);
+  void ReceiveCloudPacketCallback(std::vector<uint8_t> & packet);
 
   void ReceiveScanMessageCallback(std::unique_ptr<pandar_msgs::msg::PandarScan> scan_msg);
 
@@ -58,9 +57,11 @@ private:
   /// @brief rclcpp parameter callback
   /// @param parameters Received parameters
   /// @return SetParametersResult
-  rcl_interfaces::msg::SetParametersResult OnParameterChange(const std::vector<rclcpp::Parameter>& p);
+  rcl_interfaces::msg::SetParametersResult OnParameterChange(
+    const std::vector<rclcpp::Parameter> & p);
 
-  Status ValidateAndSetConfig(std::shared_ptr<const drivers::HesaiSensorConfiguration>& new_config);
+  Status ValidateAndSetConfig(
+    std::shared_ptr<const drivers::HesaiSensorConfiguration> & new_config);
 
   Status wrapper_status_;
 
