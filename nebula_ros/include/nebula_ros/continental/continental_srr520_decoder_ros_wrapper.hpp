@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef NEBULA_ContinentalSRR520DriverRosWrapper_H
-#define NEBULA_ContinentalSRR520DriverRosWrapper_H
+#ifndef NEBULA_ContinentalSrr520DriverRosWrapper_H
+#define NEBULA_ContinentalSrr520DriverRosWrapper_H
 
 #include <ament_index_cpp/get_package_prefix.hpp>
 #include <diagnostic_updater/diagnostic_updater.hpp>
@@ -45,9 +45,9 @@ namespace nebula
 namespace ros
 {
 /// @brief Ros wrapper of continental radar ethernet driver
-class ContinentalSRR520DriverRosWrapper final : public rclcpp::Node, NebulaDriverRosWrapperBase
+class ContinentalSrr520DriverRosWrapper final : public rclcpp::Node, NebulaDriverRosWrapperBase
 {
-  std::shared_ptr<drivers::continental_srr520::ContinentalSRR520Decoder> decoder_ptr_;
+  std::shared_ptr<drivers::continental_srr520::ContinentalSrr520Decoder> decoder_ptr_;
   Status wrapper_status_;
 
   rclcpp::Subscription<nebula_msgs::msg::NebulaPackets>::SharedPtr packets_sub_;
@@ -68,10 +68,10 @@ class ContinentalSRR520DriverRosWrapper final : public rclcpp::Node, NebulaDrive
 
   std::unordered_set<int> previous_ids_;
 
-  std::shared_ptr<drivers::continental_srr520::ContinentalSRR520SensorConfiguration>
+  std::shared_ptr<drivers::continental_srr520::ContinentalSrr520SensorConfiguration>
     sensor_cfg_ptr_;
 
-  drivers::continental_srr520::ContinentalSRR520HwInterface hw_interface_;
+  drivers::continental_srr520::ContinentalSrr520HwInterface hw_interface_;
 
   /// @brief Initializing ros wrapper
   /// @param sensor_configuration SensorConfiguration for this driver
@@ -85,7 +85,7 @@ class ContinentalSRR520DriverRosWrapper final : public rclcpp::Node, NebulaDrive
   /// @param correction_configuration Output of CorrectionConfiguration (for AT)
   /// @return Resulting status
   Status GetParameters(
-    drivers::continental_srr520::ContinentalSRR520SensorConfiguration & sensor_configuration);
+    drivers::continental_srr520::ContinentalSrr520SensorConfiguration & sensor_configuration);
 
   /// @brief Convert seconds to chrono::nanoseconds
   /// @param seconds
@@ -115,7 +115,7 @@ class ContinentalSRR520DriverRosWrapper final : public rclcpp::Node, NebulaDrive
   void StatusCallback(std::unique_ptr<diagnostic_msgs::msg::DiagnosticArray> msg);
 
 public:
-  explicit ContinentalSRR520DriverRosWrapper(const rclcpp::NodeOptions & options);
+  explicit ContinentalSrr520DriverRosWrapper(const rclcpp::NodeOptions & options);
 
   /// @brief Callback for NebulaPackets subscriber
   /// @param scan_msg Received NebulaPackets
@@ -128,13 +128,13 @@ public:
   /// @brief Convert SRR520 detections to a pointcloud
   /// @param msg The SRR520 detection list msg
   /// @return Resulting detection pointcloud
-  pcl::PointCloud<nebula::drivers::continental_srr520::PointSRR520Detection>::Ptr
+  pcl::PointCloud<nebula::drivers::continental_srr520::PointSrr520Detection>::Ptr
   ConvertToPointcloud(const continental_msgs::msg::ContinentalSrr520DetectionList & msg);
 
   /// @brief Convert SRR520 objects to a pointcloud
   /// @param msg The SRR520 object list msg
   /// @return Resulting object pointcloud
-  pcl::PointCloud<nebula::drivers::continental_srr520::PointSRR520Object>::Ptr ConvertToPointcloud(
+  pcl::PointCloud<nebula::drivers::continental_srr520::PointSrr520Object>::Ptr ConvertToPointcloud(
     const continental_msgs::msg::ContinentalSrr520ObjectList & msg);
 
   /// @brief Convert SRR520 detections to a standard RadarScan msg
@@ -159,4 +159,4 @@ public:
 }  // namespace ros
 }  // namespace nebula
 
-#endif  // NEBULA_ContinentalSRR520DriverRosWrapper_H
+#endif  // NEBULA_ContinentalSrr520DriverRosWrapper_H

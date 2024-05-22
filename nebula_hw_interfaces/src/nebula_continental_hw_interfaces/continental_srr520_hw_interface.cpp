@@ -25,30 +25,20 @@ namespace drivers
 {
 namespace continental_srr520
 {
-ContinentalSRR520HwInterface::ContinentalSRR520HwInterface()
+ContinentalSrr520HwInterface::ContinentalSrr520HwInterface()
 : nebula_packets_ptr_{std::make_unique<nebula_msgs::msg::NebulaPackets>()}
 {
 }
 
-Status ContinentalSRR520HwInterface::SetSensorConfiguration(
-  std::shared_ptr<SensorConfigurationBase> sensor_configuration)
+Status ContinentalSrr520HwInterface::SetSensorConfiguration(
+  std::shared_ptr<const nebula::drivers::continental_srr520::ContinentalSrr520SensorConfiguration>)
 {
-  Status status = Status::OK;
-
-  try {
-    std::lock_guard lock(receiver_mutex_);
-    sensor_configuration_ =
-      std::static_pointer_cast<ContinentalSRR520SensorConfiguration>(sensor_configuration);
-  } catch (const std::exception & ex) {
-    status = Status::SENSOR_CONFIG_ERROR;
-    std::cerr << status << std::endl;
-    return status;
-  }
+  sensor_configuration_ = sensor_configuration_;
 
   return Status::OK;
 }
 
-Status ContinentalSRR520HwInterface::SensorInterfaceStart()
+Status ContinentalSrr520HwInterface::SensorInterfaceStart()
 {
   std::lock_guard lock(receiver_mutex_);
 
@@ -64,7 +54,7 @@ Status ContinentalSRR520HwInterface::SensorInterfaceStart()
 
     sensor_interface_active_ = true;
     receiver_thread_ =
-      std::make_unique<std::thread>(&ContinentalSRR520HwInterface::ReceiveLoop, this);
+      std::make_unique<std::thread>(&ContinentalSrr520HwInterface::ReceiveLoop, this);
   } catch (const std::exception & ex) {
     Status status = Status::CAN_CONNECTION_ERROR;
     std::cerr << status << sensor_configuration_->interface << std::endl;
@@ -74,7 +64,7 @@ Status ContinentalSRR520HwInterface::SensorInterfaceStart()
 }
 
 template <std::size_t N>
-bool ContinentalSRR520HwInterface::SendFrame(const std::array<uint8_t, N> & data, int can_frame_id)
+bool ContinentalSrr520HwInterface::SendFrame(const std::array<uint8_t, N> & data, int can_frame_id)
 {
   ::drivers::socketcan::CanId send_id(
     can_frame_id, 0, ::drivers::socketcan::FrameType::DATA, ::drivers::socketcan::StandardFrame);
@@ -91,18 +81,15 @@ bool ContinentalSRR520HwInterface::SendFrame(const std::array<uint8_t, N> & data
   }
 }
 
-void ContinentalSRR520HwInterface::ReceiveLoop()
+void ContinentalSrr520HwInterface::ReceiveLoop()
 {
-  std::vector<uint8_t> buffer(64);
   ::drivers::socketcan::CanId receive_id{};
   std::chrono::nanoseconds receiver_timeout_nsec;
   bool use_bus_time;
 
-  rdi_near_packets_ptr_ = std::make_unique<nebula_msgs::msg::NebulaPackets>();
-  rdi_hrr_packets_ptr_ = std::make_unique<nebula_msgs::msg::NebulaPackets>();
-  object_packets_ptr_ = std::make_unique<nebula_msgs::msg::NebulaPackets>();
-
   while (true) {
+    auto packet_msg_ptr = std::make_unique<nebula_msgs::msg::NebulaPacket>();
+
     {
       std::lock_guard lock(receiver_mutex_);
       receiver_timeout_nsec = std::chrono::duration_cast<std::chrono::nanoseconds>(
@@ -115,14 +102,21 @@ void ContinentalSRR520HwInterface::ReceiveLoop()
     }
 
     try {
-      buffer.resize(64);
-      receive_id = can_receiver_->receive_fd(buffer.data(), receiver_timeout_nsec);
+      packet_msg_ptr->data.resize(68);  // 64 bytes of data + 4 bytes of ID
+      receive_id = can_receiver_->receive_fd(
+        packet_msg_ptr->data.data() + 4 * sizeof(uint8_t), receiver_timeout_nsec);
     } catch (const std::exception & ex) {
       PrintError(std::string("Error receiving CAN FD message: ") + ex.what());
       continue;
     }
 
-    buffer.resize(receive_id.length());
+    packet_msg_ptr->data.resize(receive_id.length() + 4);
+
+    uint32_t id = receive_id.identifier();
+    packet_msg_ptr->data[0] = (id & 0xFF000000) >> 24;
+    packet_msg_ptr->data[1] = (id & 0x00FF0000) >> 16;
+    packet_msg_ptr->data[2] = (id & 0x0000FF00) >> 8;
+    packet_msg_ptr->data[3] = (id & 0x000000FF) >> 0;
 
     int64_t stamp = use_bus_time
                       ? static_cast<int64_t>(receive_id.get_bus_time() * 1000U)
@@ -130,334 +124,28 @@ void ContinentalSRR520HwInterface::ReceiveLoop()
                                                 std::chrono::system_clock::now().time_since_epoch())
                                                 .count());
 
+    packet_msg_ptr->stamp.sec = stamp / 1'000'000'000;
+    packet_msg_ptr->stamp.nanosec = stamp % 1'000'000'000;
+
     if (receive_id.frame_type() == ::drivers::socketcan::FrameType::ERROR) {
       PrintError("CAN FD message is an error frame");
       continue;
     }
 
-    ReceiveSensorPacketCallback(buffer, receive_id.identifier(), stamp);
+    nebula_packet_callback_(std::move(packet_msg_ptr));
+
+    // ReceiveSensorPacketCallback(buffer, receive_id.identifier(), stamp);
   }
 }
 
-Status ContinentalSRR520HwInterface::RegisterScanCallback(
-  std::function<void(std::unique_ptr<nebula_msgs::msg::NebulaPackets>)> callback)
+Status ContinentalSrr520HwInterface::RegisterPacketCallback(
+  std::function<void(std::unique_ptr<nebula_msgs::msg::NebulaPacket>)> callback)
 {
-  nebula_packets_reception_callback_ = std::move(callback);
+  nebula_packet_callback_ = std::move(callback);
   return Status::OK;
 }
 
-void ContinentalSRR520HwInterface::ReceiveSensorPacketCallback(
-  const std::vector<uint8_t> & buffer, int can_message_id, uint64_t stamp)
-{
-  if (buffer.size() < 4) {
-    PrintError("Unrecognized packet. Too short");
-    return;
-  }
-
-  if (can_message_id == RDI_NEAR_HEADER_CAN_MESSAGE_ID) {
-    if (buffer.size() != RDI_NEAR_HEADER_PACKET_SIZE) {
-      PrintError("RDI_NEAR_HEADER_CAN_MESSAGE_ID message with invalid size");
-      return;
-    }
-    ProcessNearHeaderPacket(buffer, stamp);
-  } else if (can_message_id == RDI_NEAR_ELEMENT_CAN_MESSAGE_ID) {
-    if (buffer.size() != RDI_NEAR_ELEMENT_PACKET_SIZE) {
-      PrintError("RDI_NEAR_ELEMENT_CAN_MESSAGE_ID message with invalid size");
-      return;
-    }
-
-    ProcessNearElementPacket(buffer, stamp);
-  } else if (can_message_id == RDI_HRR_HEADER_CAN_MESSAGE_ID) {
-    if (buffer.size() != RDI_HRR_HEADER_PACKET_SIZE) {
-      PrintError("RDI_HRR_HEADER_CAN_MESSAGE_ID message with invalid size");
-      return;
-    }
-    ProcessHRRHeaderPacket(buffer, stamp);
-  } else if (can_message_id == RDI_HRR_ELEMENT_CAN_MESSAGE_ID) {
-    if (buffer.size() != RDI_HRR_ELEMENT_PACKET_SIZE) {
-      PrintError("RDI_HRR_ELEMENT_CAN_MESSAGE_ID message with invalid size");
-      return;
-    }
-
-    ProcessHRRElementPacket(buffer, stamp);
-  } else if (can_message_id == OBJECT_HEADER_CAN_MESSAGE_ID) {
-    if (buffer.size() != OBJECT_HEADER_PACKET_SIZE) {
-      PrintError("OBJECT_HEADER_CAN_MESSAGE_ID message with invalid size");
-      return;
-    }
-    ProcessObjectHeaderPacket(buffer, stamp);
-  } else if (can_message_id == OBJECT_CAN_MESSAGE_ID) {
-    if (buffer.size() != OBJECT_PACKET_SIZE) {
-      PrintError("OBJECT_ELEMENT_CAN_MESSAGE_ID message with invalid size");
-      return;
-    }
-
-    ProcessObjectElementPacket(buffer, stamp);
-  } else if (can_message_id == CRC_LIST_CAN_MESSAGE_ID) {
-    if (buffer.size() != CRC_LIST_PACKET_SIZE) {
-      PrintError("CRC_LIST_CAN_MESSAGE_ID message with invalid size");
-      return;
-    }
-
-    ProcessCRCListPacket(buffer, stamp);
-  } else if (can_message_id == STATUS_CAN_MESSAGE_ID) {
-    if (buffer.size() != STATUS_PACKET_SIZE) {
-      PrintError("CRC_LIST_CAN_MESSAGE_ID message with invalid size");
-      return;
-    }
-
-    ProcessSensorStatusPacket(buffer, stamp);
-  } else if (can_message_id == SYNC_FUP_CAN_MESSAGE_ID) {
-    if (buffer.size() != SYNC_FUP_CAN_PACKET_SIZE) {
-      PrintError("SYNC_FUP_CAN_MESSAGE_ID message with invalid size");
-      return;
-    }
-
-    ProcessSyncFupPacket(buffer, stamp);
-  } else if (
-    can_message_id != VEH_DYN_CAN_MESSAGE_ID && can_message_id != SENSOR_CONFIG_CAN_MESSAGE_ID) {
-    PrintError("Unrecognized message ID=" + std::to_string(can_message_id));
-  }
-}
-
-void ContinentalSRR520HwInterface::ProcessNearHeaderPacket(
-  const std::vector<uint8_t> & buffer, const uint64_t stamp)
-{
-  nebula_msgs::msg::NebulaPacket packet;
-  packet.data = {
-    static_cast<uint8_t>(RDI_NEAR_HEADER_CAN_MESSAGE_ID & 0xff),
-    static_cast<uint8_t>(RDI_NEAR_HEADER_CAN_MESSAGE_ID >> 8)};
-  packet.stamp.sec = stamp / 1'000'000'000;
-  packet.stamp.nanosec = stamp % 1'000'000'000;
-  rdi_near_packets_ptr_->packets.emplace_back(packet);
-
-  packet.data = buffer;
-  rdi_near_packets_ptr_->packets.emplace_back(packet);
-
-  rdi_near_packets_ptr_->header.stamp = packet.stamp;
-}
-
-void ContinentalSRR520HwInterface::ProcessNearElementPacket(
-  const std::vector<uint8_t> & buffer, const uint64_t stamp)
-{
-  if (rdi_near_packets_ptr_->packets.size() == 0) {
-    if (!first_rdi_near_packet_) {
-      PrintError("Near element before header. This can happen during the first iteration");
-    }
-    return;
-  }
-
-  rdi_near_packets_ptr_->packets.front().data.push_back(
-    static_cast<uint8_t>(RDI_NEAR_ELEMENT_CAN_MESSAGE_ID & 0xff));
-  rdi_near_packets_ptr_->packets.front().data.push_back(
-    static_cast<uint8_t>(RDI_NEAR_ELEMENT_CAN_MESSAGE_ID >> 8));
-
-  nebula_msgs::msg::NebulaPacket packet;
-  packet.data = buffer;
-  packet.stamp.sec = stamp / 1'000'000'000;
-  packet.stamp.nanosec = stamp % 1'000'000'000;
-
-  rdi_near_packets_ptr_->packets.emplace_back(packet);
-}
-
-void ContinentalSRR520HwInterface::ProcessHRRHeaderPacket(
-  const std::vector<uint8_t> & buffer, const uint64_t stamp)
-{
-  nebula_msgs::msg::NebulaPacket packet;
-  packet.data = {
-    static_cast<uint8_t>(RDI_HRR_HEADER_CAN_MESSAGE_ID & 0xff),
-    static_cast<uint8_t>(RDI_HRR_HEADER_CAN_MESSAGE_ID >> 8)};
-  packet.stamp.sec = stamp / 1'000'000'000;
-  packet.stamp.nanosec = stamp % 1'000'000'000;
-  rdi_hrr_packets_ptr_->packets.emplace_back(packet);
-
-  packet.data = buffer;
-  rdi_hrr_packets_ptr_->packets.emplace_back(packet);
-
-  rdi_hrr_packets_ptr_->header.stamp = packet.stamp;
-}
-
-void ContinentalSRR520HwInterface::ProcessHRRElementPacket(
-  const std::vector<uint8_t> & buffer, const uint64_t stamp)
-{
-  if (rdi_hrr_packets_ptr_->packets.size() == 0) {
-    if (!first_rdi_hrr_packet_) {
-      PrintError("HRR element before header. This can happen during the first iteration");
-    }
-    return;
-  }
-
-  rdi_hrr_packets_ptr_->packets.front().data.push_back(
-    static_cast<uint8_t>(RDI_HRR_ELEMENT_CAN_MESSAGE_ID & 0xff));
-  rdi_hrr_packets_ptr_->packets.front().data.push_back(
-    static_cast<uint8_t>(RDI_HRR_ELEMENT_CAN_MESSAGE_ID >> 8));
-
-  nebula_msgs::msg::NebulaPacket packet;
-  packet.data = buffer;
-  packet.stamp.sec = stamp / 1'000'000'000;
-  packet.stamp.nanosec = stamp % 1'000'000'000;
-
-  rdi_hrr_packets_ptr_->packets.emplace_back(packet);
-}
-
-void ContinentalSRR520HwInterface::ProcessObjectHeaderPacket(
-  const std::vector<uint8_t> & buffer, const uint64_t stamp)
-{
-  nebula_msgs::msg::NebulaPacket packet;
-  packet.data = {
-    static_cast<uint8_t>(OBJECT_HEADER_CAN_MESSAGE_ID & 0xff),
-    static_cast<uint8_t>(OBJECT_HEADER_CAN_MESSAGE_ID >> 8)};
-  packet.stamp.sec = stamp / 1'000'000'000;
-  packet.stamp.nanosec = stamp % 1'000'000'000;
-  object_packets_ptr_->packets.emplace_back(packet);
-
-  packet.data = buffer;
-  object_packets_ptr_->packets.emplace_back(packet);
-
-  object_packets_ptr_->header.stamp = packet.stamp;
-}
-
-void ContinentalSRR520HwInterface::ProcessObjectElementPacket(
-  const std::vector<uint8_t> & buffer, const uint64_t stamp)
-{
-  if (object_packets_ptr_->packets.size() == 0) {
-    if (!first_object_packet_) {
-      PrintError("Object element before header. This can happen during the first iteration");
-    }
-    return;
-  }
-
-  object_packets_ptr_->header.stamp.sec = stamp / 1'000'000'000;
-  object_packets_ptr_->header.stamp.nanosec = stamp % 1'000'000'000;
-
-  object_packets_ptr_->packets.front().data.push_back(
-    static_cast<uint8_t>(OBJECT_CAN_MESSAGE_ID & 0xff));
-  object_packets_ptr_->packets.front().data.push_back(
-    static_cast<uint8_t>(OBJECT_CAN_MESSAGE_ID >> 8));
-
-  nebula_msgs::msg::NebulaPacket packet;
-  packet.data = buffer;
-  packet.stamp = object_packets_ptr_->header.stamp;
-
-  object_packets_ptr_->packets.emplace_back(packet);
-}
-
-void ContinentalSRR520HwInterface::ProcessCRCListPacket(
-  const std::vector<uint8_t> & buffer, const uint64_t stamp)
-{
-  const auto crc_id = buffer[0];
-
-  if (crc_id == NEAR_CRC_ID) {
-    ProcessNearCRCListPacket(buffer, stamp);
-  } else if (crc_id == HRR_CRC_ID) {
-    ProcessHRRCRCListPacket(buffer, stamp);  // cspell: ignore HRRCRC
-  } else if (crc_id == OBJECT_CRC_ID) {
-    ProcessObjectCRCListPacket(buffer, stamp);
-  } else {
-    PrintError(std::string("Unrecognized CRC id=") + std::to_string(crc_id));
-  }
-}
-
-void ContinentalSRR520HwInterface::ProcessNearCRCListPacket(
-  const std::vector<uint8_t> & buffer, [[maybe_unused]] const uint64_t stamp)
-{
-  if (rdi_near_packets_ptr_->packets.size() != RDI_NEAR_PACKET_NUM + 2) {
-    if (!first_rdi_near_packet_) {
-      PrintError("Incorrect number of RDI Near elements before CRC list");
-    }
-    return;
-  }
-
-  uint16_t transmitted_crc = (static_cast<uint16_t>(buffer[1]) << 8) | buffer[2];
-  uint16_t computed_crc =
-    crc16_packets(rdi_near_packets_ptr_->packets.begin() + 1, rdi_near_packets_ptr_->packets.end());
-
-  if (transmitted_crc != computed_crc) {
-    PrintError(
-      "RDI Near: Transmitted CRC list does not coincide with the computed one. Ignoring packet");
-    return;
-  }
-
-  nebula_packets_reception_callback_(std::move(rdi_near_packets_ptr_));
-  rdi_near_packets_ptr_ = std::make_unique<nebula_msgs::msg::NebulaPackets>();
-  first_rdi_near_packet_ = false;
-}
-
-void ContinentalSRR520HwInterface::ProcessHRRCRCListPacket(
-  const std::vector<uint8_t> & buffer, [[maybe_unused]] const uint64_t stamp)
-{
-  if (rdi_hrr_packets_ptr_->packets.size() != RDI_HRR_PACKET_NUM + 2) {
-    if (!first_rdi_hrr_packet_) {
-      PrintError("Incorrect number of RDI HRR elements before CRC list");
-    }
-    return;
-  }
-
-  uint16_t transmitted_crc = (static_cast<uint16_t>(buffer[1]) << 8) | buffer[2];
-  uint16_t computed_crc =
-    crc16_packets(rdi_hrr_packets_ptr_->packets.begin() + 1, rdi_hrr_packets_ptr_->packets.end());
-
-  if (transmitted_crc != computed_crc) {
-    PrintError(
-      "RDI HRR: Transmitted CRC list does not coincide with the computed one. Ignoring packet");
-    return;
-  }
-
-  nebula_packets_reception_callback_(std::move(rdi_hrr_packets_ptr_));
-  rdi_hrr_packets_ptr_ = std::make_unique<nebula_msgs::msg::NebulaPackets>();
-  first_rdi_hrr_packet_ = false;
-}
-
-void ContinentalSRR520HwInterface::ProcessObjectCRCListPacket(
-  const std::vector<uint8_t> & buffer, [[maybe_unused]] const uint64_t stamp)
-{
-  if (object_packets_ptr_->packets.size() != OBJECT_PACKET_NUM + 2) {
-    if (!first_object_packet_) {
-      PrintError("Incorrect number of object packages before CRC list");
-    }
-    return;
-  }
-
-  uint16_t transmitted_crc = (static_cast<uint16_t>(buffer[1]) << 8) | buffer[2];
-  uint16_t computed_crc =
-    crc16_packets(object_packets_ptr_->packets.begin() + 1, object_packets_ptr_->packets.end());
-
-  // uint8_t current_seq = buffer[3];
-
-  if (transmitted_crc != computed_crc) {
-    PrintError(
-      "Object: Transmitted CRC list does not coincide with the computed one. Ignoring packet");
-    return;
-  }
-
-  nebula_packets_reception_callback_(std::move(object_packets_ptr_));
-  object_packets_ptr_ = std::make_unique<nebula_msgs::msg::NebulaPackets>();
-  first_object_packet_ = false;
-}
-
-void ContinentalSRR520HwInterface::ProcessSensorStatusPacket(
-  const std::vector<uint8_t> & buffer, const uint64_t stamp)
-{
-  auto status_packets_ptr = std::make_unique<nebula_msgs::msg::NebulaPackets>();
-
-  nebula_msgs::msg::NebulaPacket packet;
-  packet.stamp.sec = stamp / 1'000'000'000;
-  packet.stamp.nanosec = stamp % 1'000'000'000;
-  packet.data = {
-    static_cast<uint8_t>(STATUS_CAN_MESSAGE_ID & 0xff),
-    static_cast<uint8_t>(STATUS_CAN_MESSAGE_ID >> 8)};
-
-  status_packets_ptr->packets.push_back(packet);
-
-  packet.data = buffer;
-  status_packets_ptr->packets.push_back(packet);
-
-  status_packets_ptr->header.stamp = packet.stamp;
-  nebula_packets_reception_callback_(std::move(status_packets_ptr));
-}
-
-void ContinentalSRR520HwInterface::ProcessSyncFupPacket(
-  [[maybe_unused]] const std::vector<uint8_t> & buffer, [[maybe_unused]] const uint64_t stamp)
+void ContinentalSrr520HwInterface::SensorSyncFup()
 {
   if (!can_sender_) {
     PrintError("Can sender is invalid so can not do follow up");
@@ -495,7 +183,7 @@ void ContinentalSRR520HwInterface::ProcessSyncFupPacket(
   sync_counter_ = sync_counter_ == 15 ? 0 : sync_counter_ + 1;
 }
 
-void ContinentalSRR520HwInterface::SensorSync()
+void ContinentalSrr520HwInterface::SensorSync()
 {
   if (!can_sender_) {
     PrintError("Can sender is invalid so can not do sync up");
@@ -555,7 +243,7 @@ void ContinentalSRR520HwInterface::SensorSync()
   sync_fup_sent_ = true;
 }
 
-void ContinentalSRR520HwInterface::ProcessDataPacket(const std::vector<uint8_t> & buffer)
+void ContinentalSrr520HwInterface::ProcessDataPacket(const std::vector<uint8_t> & buffer)
 {
   nebula_msgs::msg::NebulaPacket nebula_packet;
   nebula_packet.data = buffer;
@@ -579,7 +267,7 @@ void ContinentalSRR520HwInterface::ProcessDataPacket(const std::vector<uint8_t> 
   nebula_packets_ptr_ = std::make_unique<nebula_msgs::msg::NebulaPackets>();
 }
 
-Status ContinentalSRR520HwInterface::SensorInterfaceStop()
+Status ContinentalSrr520HwInterface::SensorInterfaceStop()
 {
   {
     std::lock_guard l(receiver_mutex_);
@@ -590,16 +278,7 @@ Status ContinentalSRR520HwInterface::SensorInterfaceStop()
   return Status::ERROR_1;
 }
 
-Status ContinentalSRR520HwInterface::GetSensorConfiguration(
-  SensorConfigurationBase & sensor_configuration)
-{
-  std::stringstream ss;
-  ss << sensor_configuration;
-  PrintDebug(ss.str());
-  return Status::ERROR_1;
-}
-
-Status ContinentalSRR520HwInterface::ConfigureSensor(
+Status ContinentalSrr520HwInterface::ConfigureSensor(
   uint8_t sensor_id, float longitudinal_autosar, float lateral_autosar, float vertical_autosar,
   float yaw_autosar, float longitudinal_cog, float wheelbase, float cover_damping, bool plug_bottom,
   bool reset)
@@ -665,7 +344,7 @@ Status ContinentalSRR520HwInterface::ConfigureSensor(
   }
 }
 
-Status ContinentalSRR520HwInterface::SetVehicleDynamics(
+Status ContinentalSrr520HwInterface::SetVehicleDynamics(
   float longitudinal_acceleration, float lateral_acceleration, float yaw_rate,
   float longitudinal_velocity, bool standstill)
 {
@@ -709,12 +388,12 @@ Status ContinentalSRR520HwInterface::SetVehicleDynamics(
   }
 }
 
-void ContinentalSRR520HwInterface::SetLogger(std::shared_ptr<rclcpp::Logger> logger)
+void ContinentalSrr520HwInterface::SetLogger(std::shared_ptr<rclcpp::Logger> logger)
 {
   parent_node_logger = logger;
 }
 
-void ContinentalSRR520HwInterface::PrintInfo(std::string info)
+void ContinentalSrr520HwInterface::PrintInfo(std::string info)
 {
   if (parent_node_logger) {
     RCLCPP_INFO_STREAM((*parent_node_logger), info);
@@ -723,7 +402,7 @@ void ContinentalSRR520HwInterface::PrintInfo(std::string info)
   }
 }
 
-void ContinentalSRR520HwInterface::PrintError(std::string error)
+void ContinentalSrr520HwInterface::PrintError(std::string error)
 {
   if (parent_node_logger) {
     RCLCPP_ERROR_STREAM((*parent_node_logger), error);
@@ -732,7 +411,7 @@ void ContinentalSRR520HwInterface::PrintError(std::string error)
   }
 }
 
-void ContinentalSRR520HwInterface::PrintDebug(std::string debug)
+void ContinentalSrr520HwInterface::PrintDebug(std::string debug)
 {
   if (parent_node_logger) {
     RCLCPP_DEBUG_STREAM((*parent_node_logger), debug);
@@ -741,7 +420,7 @@ void ContinentalSRR520HwInterface::PrintDebug(std::string debug)
   }
 }
 
-void ContinentalSRR520HwInterface::PrintDebug(const std::vector<uint8_t> & bytes)
+void ContinentalSrr520HwInterface::PrintDebug(const std::vector<uint8_t> & bytes)
 {
   std::stringstream ss;
   for (const auto & b : bytes) {

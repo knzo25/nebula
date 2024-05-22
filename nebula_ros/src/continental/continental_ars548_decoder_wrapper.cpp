@@ -102,6 +102,8 @@ Status ContinentalArs548DecoderWrapper::InitializeDriver(
     std::bind(&ContinentalArs548DecoderWrapper::ObjectListCallback, this, std::placeholders::_1));
   driver_ptr_->RegisterSensorStatusCallback(
     std::bind(&ContinentalArs548DecoderWrapper::SensorStatusCallback, this, std::placeholders::_1));
+  driver_ptr_->RegisterPacketsCallback(
+    std::bind(&ContinentalArs548DecoderWrapper::PacketsCallback, this, std::placeholders::_1));
 
   return Status::OK;
 }
@@ -118,17 +120,7 @@ void ContinentalArs548DecoderWrapper::OnConfigChange(
 void ContinentalArs548DecoderWrapper::ProcessPacket(
   std::unique_ptr<nebula_msgs::msg::NebulaPacket> packet_msg)
 {
-  driver_ptr_->ProcessPacket(*packet_msg);
-
-  if (
-    packets_pub_ && (packets_pub_->get_subscription_count() > 0 ||
-                     packets_pub_->get_intra_process_subscription_count() > 0)) {
-    auto nebula_packets_msg = std::make_unique<nebula_msgs::msg::NebulaPackets>();
-    nebula_packets_msg->header.stamp = packet_msg->stamp;
-    nebula_packets_msg->header.frame_id = sensor_cfg_->frame_id;
-    nebula_packets_msg->packets.emplace_back(std::move(*packet_msg));
-    packets_pub_->publish(std::move(nebula_packets_msg));
-  }
+  driver_ptr_->ProcessPacket(std::move(packet_msg));
 
   cloud_watchdog_->update();
 }
@@ -310,6 +302,16 @@ void ContinentalArs548DecoderWrapper::SensorStatusCallback(
   add_diagnostic("radar_invalid_count", std::to_string(sensor_status.radar_invalid_count));
 
   diagnostics_pub_->publish(diagnostic_array_msg);
+}
+
+void ContinentalArs548DecoderWrapper::PacketsCallback(
+  std::unique_ptr<nebula_msgs::msg::NebulaPackets> msg)
+{
+  if (
+    packets_pub_ && (packets_pub_->get_subscription_count() > 0 ||
+                     packets_pub_->get_intra_process_subscription_count() > 0)) {
+    packets_pub_->publish(std::move(msg));
+  }
 }
 
 pcl::PointCloud<nebula::drivers::continental_ars548::PointArs548Detection>::Ptr

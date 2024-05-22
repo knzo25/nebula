@@ -13,12 +13,13 @@
 // limitations under the License.
 
 template <typename Iterator>
-int crc16_packets(Iterator begin, Iterator end)
+int crc16_packets(Iterator begin, Iterator end, int payload_offset)
 {
   uint16_t crc_word = 0xffff;
 
   for (Iterator it = begin; it != end; ++it) {
-    for (const uint8_t byte : it->data) {
+    for (auto it2 = it->data.begin() + payload_offset; it2 != it->data.end(); ++it2) {
+      auto byte = *it2;
       crc_word ^= byte << 8;
       for (int i = 0; i < 8; i++)
         crc_word = crc_word & 0x8000 ? (crc_word << 1) ^ 0x1021 : crc_word << 1;

@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef NEBULA_ContinentalSRR520HwInterfaceRosWrapper_H
-#define NEBULA_ContinentalSRR520HwInterfaceRosWrapper_H
+#ifndef NEBULA_ContinentalSrr520HwInterfaceRosWrapper_H
+#define NEBULA_ContinentalSrr520HwInterfaceRosWrapper_H
 
 #include <ament_index_cpp/get_package_prefix.hpp>
 #include <boost_tcp_driver/tcp_driver.hpp>
@@ -68,13 +68,13 @@ bool get_param(const std::vector<rclcpp::Parameter> & p, const std::string & nam
 }
 
 /// @brief Hardware interface ros wrapper of continental radar ethernet driver
-class ContinentalSRR520HwInterfaceRosWrapper final : public rclcpp::Node,
+class ContinentalSrr520HwInterfaceRosWrapper final : public rclcpp::Node,
                                                      NebulaHwInterfaceWrapperBase
 {
-  drivers::continental_srr520::ContinentalSRR520HwInterface hw_interface_;
+  drivers::continental_srr520::ContinentalSrr520HwInterface hw_interface_;
   Status interface_status_;
 
-  drivers::continental_srr520::ContinentalSRR520SensorConfiguration sensor_configuration_;
+  drivers::continental_srr520::ContinentalSrr520SensorConfiguration sensor_configuration_;
 
   /// @brief Received Continental Radar message publisher
   rclcpp::Publisher<nebula_msgs::msg::NebulaPackets>::SharedPtr packets_pub_;
@@ -86,7 +86,6 @@ class ContinentalSRR520HwInterfaceRosWrapper final : public rclcpp::Node,
     geometry_msgs::msg::TwistWithCovarianceStamped, geometry_msgs::msg::AccelWithCovarianceStamped>;
   using ExactTimeSync = message_filters::Synchronizer<ExactTimeSyncPolicy>;
   std::shared_ptr<ExactTimeSync> sync_ptr_;
-
   rclcpp::TimerBase::SharedPtr sync_timer_;
 
   bool standstill_{true};
@@ -123,8 +122,8 @@ class ContinentalSRR520HwInterfaceRosWrapper final : public rclcpp::Node,
   void syncTimerCallback();
 
 public:
-  explicit ContinentalSRR520HwInterfaceRosWrapper(const rclcpp::NodeOptions & options);
-  ~ContinentalSRR520HwInterfaceRosWrapper() noexcept override;
+  explicit ContinentalSrr520HwInterfaceRosWrapper(const rclcpp::NodeOptions & options);
+  ~ContinentalSrr520HwInterfaceRosWrapper() noexcept override;
 
   /// @brief Start point cloud streaming (Call SensorInterfaceStart of HwInterface)
   /// @return Resulting status
@@ -139,7 +138,7 @@ public:
   /// @param sensor_configuration Output of SensorConfiguration
   /// @return Resulting status
   Status GetParameters(
-    drivers::continental_srr520::ContinentalSRR520SensorConfiguration & sensor_configuration);
+    drivers::continental_srr520::ContinentalSrr520SensorConfiguration & sensor_configuration);
 
 private:
   std::mutex mtx_config_;
@@ -159,4 +158,4 @@ private:
 }  // namespace ros
 }  // namespace nebula
 
-#endif  // NEBULA_ContinentalSRR520HwInterfaceRosWrapper_H
+#endif  // NEBULA_ContinentalSrr520HwInterfaceRosWrapper_H

@@ -79,6 +79,10 @@ public:
   void SensorStatusCallback(
     const drivers::continental_ars548::ContinentalArs548Status & sensor_status);
 
+  /// @brief Callback to process new ContinentalArs548Status from the driver
+  /// @param msg The new ContinentalArs548ObjectList from the driver
+  void PacketsCallback(std::unique_ptr<nebula_msgs::msg::NebulaPackets> msg);
+
 private:
   nebula::Status InitializeDriver(
     const std::shared_ptr<

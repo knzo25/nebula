@@ -12,21 +12,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef NEBULA_ContinentalARS548HwInterfaceRosWrapper_H
-#define NEBULA_ContinentalARS548HwInterfaceRosWrapper_H
+#ifndef NEBULA_ContinentalArs548HwInterfaceRosWrapper_H
+#define NEBULA_ContinentalArs548HwInterfaceRosWrapper_H
 
 #include <ament_index_cpp/get_package_prefix.hpp>
 #include <boost_tcp_driver/tcp_driver.hpp>
 #include <nebula_common/nebula_common.hpp>
-#include <nebula_hw_interfaces/nebula_hw_interfaces_continental/continental_ars548_hw_interface.hpp>
+#include <nebula_hw_interfaces/nebula_hw_interfaces_continental/multi_continental_ars548_hw_interface.hpp>
 #include <nebula_ros/common/nebula_hw_interface_ros_wrapper_base.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <rclcpp_components/register_node_macro.hpp>
 
-#include <continental_srvs/srv/continental_ars548_set_network_configuration.hpp>
-#include <continental_srvs/srv/continental_ars548_set_radar_parameters.hpp>
-#include <continental_srvs/srv/continental_ars548_set_sensor_mounting.hpp>
-#include <continental_srvs/srv/continental_ars548_set_vehicle_parameters.hpp>
 #include <geometry_msgs/msg/accel_with_covariance_stamped.hpp>
 #include <geometry_msgs/msg/twist_with_covariance_stamped.hpp>
 #include <nebula_msgs/msg/nebula_packet.hpp>
@@ -40,6 +36,7 @@
 #include <mutex>
 #include <string>
 #include <thread>
+#include <unordered_map>
 #include <vector>
 
 namespace nebula
@@ -66,30 +63,26 @@ bool get_param(const std::vector<rclcpp::Parameter> & p, const std::string & nam
 }
 
 /// @brief Hardware interface ros wrapper of continental radar ethernet driver
-class ContinentalARS548HwInterfaceRosWrapper final : public rclcpp::Node,
-                                                     NebulaHwInterfaceWrapperBase
+/// NOTE: this is a temporary class that acts as a single hw interface for multiple devices
+/// The reason behind this is a not-so-efficient multicasting and package processing when having N
+/// interfaces for N devices If we end up having problems because of that we may switch to this
+/// implementation. Otherwise this implementation will be removed at a later date
+class MultiContinentalArs548HwInterfaceRosWrapper final : public rclcpp::Node,
+                                                          NebulaHwInterfaceWrapperBase
 {
-  drivers::continental_ars548::ContinentalARS548HwInterface hw_interface_;
+  drivers::continental_ars548::MultiContinentalArs548HwInterface hw_interface_;
   Status interface_status_;
 
-  drivers::continental_ars548::ContinentalARS548SensorConfiguration sensor_configuration_;
+  drivers::continental_ars548::MultiContinentalArs548SensorConfiguration sensor_configuration_;
 
   /// @brief Received Continental Radar message publisher
-  rclcpp::Publisher<nebula_msgs::msg::NebulaPackets>::SharedPtr packets_pub_;
+  std::unordered_map<std::string, rclcpp::Publisher<nebula_msgs::msg::NebulaPackets>::SharedPtr>
+    packets_pub_map_;
   rclcpp::Subscription<geometry_msgs::msg::TwistWithCovarianceStamped>::SharedPtr odometry_sub_;
   rclcpp::Subscription<geometry_msgs::msg::AccelWithCovarianceStamped>::SharedPtr acceleration_sub_;
   rclcpp::Subscription<std_msgs::msg::Float32>::SharedPtr steering_angle_sub_;
 
   bool standstill_{true};
-
-  rclcpp::Service<continental_srvs::srv::ContinentalArs548SetNetworkConfiguration>::SharedPtr
-    set_network_configuration_service_server_;
-  rclcpp::Service<continental_srvs::srv::ContinentalArs548SetSensorMounting>::SharedPtr
-    set_sensor_mounting_service_server_;
-  rclcpp::Service<continental_srvs::srv::ContinentalArs548SetVehicleParameters>::SharedPtr
-    set_vehicle_parameters_service_server_;
-  rclcpp::Service<continental_srvs::srv::ContinentalArs548SetRadarParameters>::SharedPtr
-    set_radar_parameters_service_server_;
 
   /// @brief Initializing hardware interface ros wrapper
   /// @param sensor_configuration SensorConfiguration for this driver
@@ -98,7 +91,8 @@ class ContinentalARS548HwInterfaceRosWrapper final : public rclcpp::Node,
     const drivers::SensorConfigurationBase & sensor_configuration) override;
   /// @brief Callback for receiving NebulaPackets
   /// @param packets_buffer Received NebulaPackets
-  void ReceivePacketsDataCallback(std::unique_ptr<nebula_msgs::msg::NebulaPackets> packets_buffer);
+  void ReceivePacketsDataCallback(
+    std::unique_ptr<nebula_msgs::msg::NebulaPackets> packets_buffer, const std::string & sensor_ip);
 
   /// @brief Callback to send the odometry information to the radar device
   /// @param msg The odometry message
@@ -112,45 +106,9 @@ class ContinentalARS548HwInterfaceRosWrapper final : public rclcpp::Node,
   /// @param msg The steering angle message
   void SteeringAngleCallback(const std_msgs::msg::Float32::SharedPtr msg);
 
-  /// @brief Service callback to set the new sensor ip
-  /// @param request service request
-  /// @param response service response
-  void SetNetworkConfigurationRequestCallback(
-    const std::shared_ptr<continental_srvs::srv::ContinentalArs548SetNetworkConfiguration::Request>
-      request,
-    const std::shared_ptr<continental_srvs::srv::ContinentalArs548SetNetworkConfiguration::Response>
-      response);
-
-  /// @brief Service callback to set the new sensor mounting position
-  /// @param request service request
-  /// @param response service response
-  void SetSensorMountingRequestCallback(
-    const std::shared_ptr<continental_srvs::srv::ContinentalArs548SetSensorMounting::Request>
-      request,
-    const std::shared_ptr<continental_srvs::srv::ContinentalArs548SetSensorMounting::Response>
-      response);
-
-  /// @brief Service callback to set the new vehicle parameters
-  /// @param request service request
-  /// @param response service response
-  void SetVehicleParametersRequestCallback(
-    const std::shared_ptr<continental_srvs::srv::ContinentalArs548SetVehicleParameters::Request>
-      request,
-    const std::shared_ptr<continental_srvs::srv::ContinentalArs548SetVehicleParameters::Response>
-      response);
-
-  /// @brief Service callback to set the new radar parameters
-  /// @param request service request
-  /// @param response service response
-  void SetRadarParametersRequestCallback(
-    const std::shared_ptr<continental_srvs::srv::ContinentalArs548SetRadarParameters::Request>
-      request,
-    const std::shared_ptr<continental_srvs::srv::ContinentalArs548SetRadarParameters::Response>
-      response);
-
 public:
-  explicit ContinentalARS548HwInterfaceRosWrapper(const rclcpp::NodeOptions & options);
-  ~ContinentalARS548HwInterfaceRosWrapper() noexcept override;
+  explicit MultiContinentalArs548HwInterfaceRosWrapper(const rclcpp::NodeOptions & options);
+  ~MultiContinentalArs548HwInterfaceRosWrapper() noexcept override;
 
   /// @brief Start point cloud streaming (Call SensorInterfaceStart of HwInterface)
   /// @return Resulting status
@@ -165,7 +123,7 @@ public:
   /// @param sensor_configuration Output of SensorConfiguration
   /// @return Resulting status
   Status GetParameters(
-    drivers::continental_ars548::ContinentalARS548SensorConfiguration & sensor_configuration);
+    drivers::continental_ars548::MultiContinentalArs548SensorConfiguration & sensor_configuration);
 
 private:
   std::mutex mtx_config_;
@@ -185,4 +143,4 @@ private:
 }  // namespace ros
 }  // namespace nebula
 
-#endif  // NEBULA_ContinentalARS548HwInterfaceRosWrapper_H
+#endif  // NEBULA_ContinentalArs548HwInterfaceRosWrapper_H

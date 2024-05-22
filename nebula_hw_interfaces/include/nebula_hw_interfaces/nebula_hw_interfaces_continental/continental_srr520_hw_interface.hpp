@@ -52,7 +52,7 @@ namespace drivers
 namespace continental_srr520
 {
 /// @brief Hardware interface of the Continental SRR520 radar
-class ContinentalSRR520HwInterface : NebulaHwInterfaceBase
+class ContinentalSrr520HwInterface
 {
 private:
   // std::unique_ptr<::drivers::common::IoContext> sensor_io_context_;
@@ -62,22 +62,14 @@ private:
   std::unique_ptr<::drivers::socketcan::SocketCanSender> can_sender_;
   std::unique_ptr<std::thread> receiver_thread_;
 
-  std::shared_ptr<ContinentalSRR520SensorConfiguration> sensor_configuration_;
+  std::shared_ptr<ContinentalSrr520SensorConfiguration> sensor_configuration_;
   std::unique_ptr<nebula_msgs::msg::NebulaPackets> nebula_packets_ptr_;
-  std::function<void(std::unique_ptr<nebula_msgs::msg::NebulaPackets> buffer)>
-    nebula_packets_reception_callback_;
+  std::function<void(std::unique_ptr<nebula_msgs::msg::NebulaPacket> buffer)>
+    nebula_packet_callback_;
 
   std::mutex sensor_status_mutex_;
   std::mutex receiver_mutex_;
   bool sensor_interface_active_{};
-
-  std::unique_ptr<nebula_msgs::msg::NebulaPackets> rdi_near_packets_ptr_{};
-  std::unique_ptr<nebula_msgs::msg::NebulaPackets> rdi_hrr_packets_ptr_{};
-  std::unique_ptr<nebula_msgs::msg::NebulaPackets> object_packets_ptr_{};
-
-  bool first_rdi_near_packet_{true};
-  bool first_rdi_hrr_packet_{true};
-  bool first_object_packet_{true};
 
   uint8_t sync_counter_{0};
   bool sync_fup_sent_{true};
@@ -109,67 +101,6 @@ private:
   /// @brief Main loop of the CAN receiver thread
   void ReceiveLoop();
 
-  /// @brief Process a new near detection header packet
-  /// @param buffer The buffer containing the packet
-  /// @param stamp The stamp in nanoseconds
-  void ProcessNearHeaderPacket(const std::vector<uint8_t> & buffer, const uint64_t stamp);
-
-  /// @brief Process a new near element packet
-  /// @param buffer The buffer containing the packet
-  /// @param stamp The stamp in nanoseconds
-  void ProcessNearElementPacket(const std::vector<uint8_t> & buffer, const uint64_t stamp);
-
-  /// @brief Process a new hrr header packet
-  /// @param buffer The buffer containing the packet
-  /// @param stamp The stamp in nanoseconds
-  void ProcessHRRHeaderPacket(const std::vector<uint8_t> & buffer, const uint64_t stamp);
-
-  /// @brief Process a new hrr element packet
-  /// @param buffer The buffer containing the packet
-  /// @param stamp The stamp in nanoseconds
-  void ProcessHRRElementPacket(const std::vector<uint8_t> & buffer, const uint64_t stamp);
-
-  /// @brief Process a new object header packet
-  /// @param buffer The buffer containing the packet
-  /// @param stamp The stamp in nanoseconds
-  void ProcessObjectHeaderPacket(const std::vector<uint8_t> & buffer, const uint64_t stamp);
-
-  /// @brief Process a new object element packet
-  /// @param buffer The buffer containing the packet
-  /// @param stamp The stamp in nanoseconds
-  void ProcessObjectElementPacket(const std::vector<uint8_t> & buffer, const uint64_t stamp);
-
-  /// @brief Process a new crc list packet
-  /// @param buffer The buffer containing the packet
-  /// @param stamp The stamp in nanoseconds
-  void ProcessCRCListPacket(const std::vector<uint8_t> & buffer, const uint64_t stamp);
-
-  /// @brief Process a new Near detections crc list packet
-  /// @param buffer The buffer containing the packet
-  /// @param stamp The stamp in nanoseconds
-  void ProcessNearCRCListPacket(const std::vector<uint8_t> & buffer, const uint64_t stamp);
-
-  /// @brief Process a new HRR crc list packet
-  /// @param buffer The buffer containing the packet
-  /// @param stamp The stamp in nanoseconds
-  void ProcessHRRCRCListPacket(
-    const std::vector<uint8_t> & buffer, const uint64_t stamp);  // cspell:ignore HRRCRC
-
-  /// @brief Process a new objects crc list packet
-  /// @param buffer The buffer containing the packet
-  /// @param stamp The stamp in nanoseconds
-  void ProcessObjectCRCListPacket(const std::vector<uint8_t> & buffer, const uint64_t stamp);
-
-  /// @brief Process a new sensor status packet
-  /// @param buffer The buffer containing the status packet
-  /// @param stamp The stamp in nanoseconds
-  void ProcessSensorStatusPacket(const std::vector<uint8_t> & buffer, const uint64_t stamp);
-
-  /// @brief Process a new Sync Fup packet
-  /// @param buffer The buffer containing the packet
-  /// @param stamp The stamp in nanoseconds
-  void ProcessSyncFupPacket(const std::vector<uint8_t> & buffer, const uint64_t stamp);
-
   /// @brief Process a new filter status packet
   /// @param buffer The buffer containing the status packet
   void ProcessFilterStatusPacket(const std::vector<uint8_t> & buffer);
@@ -184,35 +115,34 @@ private:
 
 public:
   /// @brief Constructor
-  ContinentalSRR520HwInterface();
+  ContinentalSrr520HwInterface();
 
   /// @brief Starting the interface that handles UDP streams
   /// @return Resulting status
-  Status SensorInterfaceStart() final;
+  Status SensorInterfaceStart();
 
   /// @brief Function for stopping the interface that handles UDP streams
   /// @return Resulting status
-  Status SensorInterfaceStop() final;
-
-  /// @brief Printing sensor configuration
-  /// @param sensor_configuration SensorConfiguration for this interface
-  /// @return Resulting status
-  Status GetSensorConfiguration(SensorConfigurationBase & sensor_configuration) final;
+  Status SensorInterfaceStop();
 
   /// @brief Setting sensor configuration
   /// @param sensor_configuration SensorConfiguration for this interface
   /// @return Resulting status
   Status SetSensorConfiguration(
-    std::shared_ptr<SensorConfigurationBase> sensor_configuration) final;
+    std::shared_ptr<
+      const nebula::drivers::continental_srr520::ContinentalSrr520SensorConfiguration>);
 
   /// @brief Registering callback for PandarScan
   /// @param scan_callback Callback function
   /// @return Resulting status
-  Status RegisterScanCallback(
-    std::function<void(std::unique_ptr<nebula_msgs::msg::NebulaPackets>)> scan_callback);
+  Status RegisterPacketCallback(
+    std::function<void(std::unique_ptr<nebula_msgs::msg::NebulaPacket>)> packet_callback);
 
   /// @brief Sensor synchronization routine
   void SensorSync();
+
+  /// @brief Process a new Sync Fup request
+  void SensorSyncFup();
 
   /// @brief Configure the sensor
   /// @param sensor_id Desired sensor id

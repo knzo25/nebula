@@ -24,7 +24,7 @@ namespace nebula
 {
 namespace ros
 {
-ContinentalSRR520HwInterfaceRosWrapper::ContinentalSRR520HwInterfaceRosWrapper(
+ContinentalSrr520HwInterfaceRosWrapper::ContinentalSrr520HwInterfaceRosWrapper(
   const rclcpp::NodeOptions & options)
 : rclcpp::Node("continental_srr520_hw_interface_ros_wrapper", options), hw_interface_()
 {
@@ -37,30 +37,30 @@ ContinentalSRR520HwInterfaceRosWrapper::ContinentalSRR520HwInterfaceRosWrapper(
     return;
   }
   hw_interface_.SetLogger(std::make_shared<rclcpp::Logger>(this->get_logger()));
-  std::shared_ptr<drivers::continental_srr520::ContinentalSRR520SensorConfiguration>
+  std::shared_ptr<drivers::continental_srr520::ContinentalSrr520SensorConfiguration>
     sensor_cfg_ptr =
-      std::make_shared<drivers::continental_srr520::ContinentalSRR520SensorConfiguration>(
+      std::make_shared<drivers::continental_srr520::ContinentalSrr520SensorConfiguration>(
         sensor_configuration_);
   hw_interface_.SetSensorConfiguration(
     std::static_pointer_cast<drivers::SensorConfigurationBase>(sensor_cfg_ptr));
 
   hw_interface_.RegisterScanCallback(std::bind(
-    &ContinentalSRR520HwInterfaceRosWrapper::ReceivePacketsDataCallback, this,
+    &ContinentalSrr520HwInterfaceRosWrapper::ReceivePacketsDataCallback, this,
     std::placeholders::_1));
   packets_pub_ = this->create_publisher<nebula_msgs::msg::NebulaPackets>(
     "nebula_packets", rclcpp::SensorDataQoS());
 
   set_param_res_ = this->add_on_set_parameters_callback(
-    std::bind(&ContinentalSRR520HwInterfaceRosWrapper::paramCallback, this, std::placeholders::_1));
+    std::bind(&ContinentalSrr520HwInterfaceRosWrapper::paramCallback, this, std::placeholders::_1));
 
   StreamStart();
 }
 
-ContinentalSRR520HwInterfaceRosWrapper::~ContinentalSRR520HwInterfaceRosWrapper()
+ContinentalSrr520HwInterfaceRosWrapper::~ContinentalSrr520HwInterfaceRosWrapper()
 {
 }
 
-Status ContinentalSRR520HwInterfaceRosWrapper::StreamStart()
+Status ContinentalSrr520HwInterfaceRosWrapper::StreamStart()
 {
   using std::chrono_literals::operator""ms;
 
@@ -74,35 +74,35 @@ Status ContinentalSRR520HwInterfaceRosWrapper::StreamStart()
 
     sync_ptr_ =
       std::make_shared<ExactTimeSync>(ExactTimeSyncPolicy(10), odometry_sub_, acceleration_sub_);
-    sync_ptr_->registerCallback(&ContinentalSRR520HwInterfaceRosWrapper::dynamicsCallback, this);
+    sync_ptr_->registerCallback(&ContinentalSrr520HwInterfaceRosWrapper::dynamicsCallback, this);
 
     configure_sensor_service_server_ =
       this->create_service<continental_srvs::srv::ContinentalSrr520SetRadarParameters>(
         "configure_sensor",
         std::bind(
-          &ContinentalSRR520HwInterfaceRosWrapper::ConfigureSensorRequestCallback, this,
+          &ContinentalSrr520HwInterfaceRosWrapper::ConfigureSensorRequestCallback, this,
           std::placeholders::_1, std::placeholders::_2));
 
     sync_timer_ = rclcpp::create_timer(
       this, get_clock(), 100ms,
-      std::bind(&ContinentalSRR520HwInterfaceRosWrapper::syncTimerCallback, this));
+      std::bind(&ContinentalSrr520HwInterfaceRosWrapper::syncTimerCallback, this));
   }
 
   return interface_status_;
 }
 
-Status ContinentalSRR520HwInterfaceRosWrapper::StreamStop()
+Status ContinentalSrr520HwInterfaceRosWrapper::StreamStop()
 {
   hw_interface_.SensorInterfaceStop();
   return Status::OK;
 }
-Status ContinentalSRR520HwInterfaceRosWrapper::Shutdown()
+Status ContinentalSrr520HwInterfaceRosWrapper::Shutdown()
 {
   hw_interface_.SensorInterfaceStop();
   return Status::OK;
 }
 
-Status ContinentalSRR520HwInterfaceRosWrapper::InitializeHwInterface(  // todo: don't think
+Status ContinentalSrr520HwInterfaceRosWrapper::InitializeHwInterface(  // todo: don't think
                                                                        // this is needed
   const drivers::SensorConfigurationBase & sensor_configuration)
 {
@@ -112,8 +112,8 @@ Status ContinentalSRR520HwInterfaceRosWrapper::InitializeHwInterface(  // todo: 
   return Status::OK;
 }
 
-Status ContinentalSRR520HwInterfaceRosWrapper::GetParameters(
-  drivers::continental_srr520::ContinentalSRR520SensorConfiguration & sensor_configuration)
+Status ContinentalSrr520HwInterfaceRosWrapper::GetParameters(
+  drivers::continental_srr520::ContinentalSrr520SensorConfiguration & sensor_configuration)
 {
   {
     rcl_interfaces::msg::ParameterDescriptor descriptor;
@@ -212,13 +212,13 @@ Status ContinentalSRR520HwInterfaceRosWrapper::GetParameters(
   return Status::OK;
 }
 
-void ContinentalSRR520HwInterfaceRosWrapper::ReceivePacketsDataCallback(
+void ContinentalSrr520HwInterfaceRosWrapper::ReceivePacketsDataCallback(
   std::unique_ptr<nebula_msgs::msg::NebulaPackets> scan_buffer)
 {
   packets_pub_->publish(std::move(scan_buffer));
 }
 
-rcl_interfaces::msg::SetParametersResult ContinentalSRR520HwInterfaceRosWrapper::paramCallback(
+rcl_interfaces::msg::SetParametersResult ContinentalSrr520HwInterfaceRosWrapper::paramCallback(
   const std::vector<rclcpp::Parameter> & p)
 {
   std::scoped_lock lock(mtx_config_);
@@ -227,7 +227,7 @@ rcl_interfaces::msg::SetParametersResult ContinentalSRR520HwInterfaceRosWrapper:
   RCLCPP_DEBUG_STREAM(this->get_logger(), sensor_configuration_);
   RCLCPP_INFO_STREAM(this->get_logger(), p);
 
-  drivers::continental_srr520::ContinentalSRR520SensorConfiguration new_param{
+  drivers::continental_srr520::ContinentalSrr520SensorConfiguration new_param{
     sensor_configuration_};
   RCLCPP_INFO_STREAM(this->get_logger(), new_param);
   std::string sensor_model_str;
@@ -248,7 +248,7 @@ rcl_interfaces::msg::SetParametersResult ContinentalSRR520HwInterfaceRosWrapper:
     sensor_configuration_ = new_param;
     RCLCPP_INFO_STREAM(this->get_logger(), "Update sensor_configuration");
     std::shared_ptr<drivers::SensorConfigurationBase> sensor_cfg_ptr =
-      std::make_shared<drivers::continental_srr520::ContinentalSRR520SensorConfiguration>(
+      std::make_shared<drivers::continental_srr520::ContinentalSrr520SensorConfiguration>(
         sensor_configuration_);
     RCLCPP_DEBUG_STREAM(this->get_logger(), "hw_interface_.SetSensorConfiguration");
     hw_interface_.SetSensorConfiguration(
@@ -265,7 +265,7 @@ rcl_interfaces::msg::SetParametersResult ContinentalSRR520HwInterfaceRosWrapper:
   return *result;
 }
 
-void ContinentalSRR520HwInterfaceRosWrapper::dynamicsCallback(
+void ContinentalSrr520HwInterfaceRosWrapper::dynamicsCallback(
   const geometry_msgs::msg::TwistWithCovarianceStamped::SharedPtr & odometry_msg,
   const geometry_msgs::msg::AccelWithCovarianceStamped::SharedPtr & acceleration_msg)
 {
@@ -283,7 +283,7 @@ void ContinentalSRR520HwInterfaceRosWrapper::dynamicsCallback(
     odometry_msg->twist.twist.angular.z, odometry_msg->twist.twist.linear.x, standstill_);
 }
 
-void ContinentalSRR520HwInterfaceRosWrapper::ConfigureSensorRequestCallback(
+void ContinentalSrr520HwInterfaceRosWrapper::ConfigureSensorRequestCallback(
   const std::shared_ptr<continental_srvs::srv::ContinentalSrr520SetRadarParameters::Request>
     request,
   const std::shared_ptr<continental_srvs::srv::ContinentalSrr520SetRadarParameters::Response>
@@ -349,13 +349,13 @@ void ContinentalSRR520HwInterfaceRosWrapper::ConfigureSensorRequestCallback(
   response->message = (std::stringstream() << result).str();
 }
 
-void ContinentalSRR520HwInterfaceRosWrapper::syncTimerCallback()
+void ContinentalSrr520HwInterfaceRosWrapper::syncTimerCallback()
 {
   hw_interface_.SensorSync();
 }
 
 std::vector<rcl_interfaces::msg::SetParametersResult>
-ContinentalSRR520HwInterfaceRosWrapper::updateParameters()
+ContinentalSrr520HwInterfaceRosWrapper::updateParameters()
 {
   std::scoped_lock lock(mtx_config_);
   RCLCPP_DEBUG_STREAM(this->get_logger(), "updateParameters start");
@@ -379,6 +379,6 @@ ContinentalSRR520HwInterfaceRosWrapper::updateParameters()
   return results;
 }
 
-RCLCPP_COMPONENTS_REGISTER_NODE(ContinentalSRR520HwInterfaceRosWrapper)
+RCLCPP_COMPONENTS_REGISTER_NODE(ContinentalSrr520HwInterfaceRosWrapper)
 }  // namespace ros
 }  // namespace nebula

@@ -20,11 +20,11 @@ namespace nebula
 {
 namespace ros
 {
-ContinentalARS548DriverRosWrapper::ContinentalARS548DriverRosWrapper(
+ContinentalArs548DriverRosWrapper::ContinentalArs548DriverRosWrapper(
   const rclcpp::NodeOptions & options)
 : rclcpp::Node("continental_ars548_driver_ros_wrapper", options), hw_interface_()
 {
-  drivers::continental_ars548::ContinentalARS548SensorConfiguration sensor_configuration;
+  drivers::continental_ars548::ContinentalArs548SensorConfiguration sensor_configuration;
 
   setvbuf(stdout, NULL, _IONBF, BUFSIZ);
 
@@ -38,18 +38,18 @@ ContinentalARS548DriverRosWrapper::ContinentalARS548DriverRosWrapper(
   RCLCPP_INFO_STREAM(this->get_logger(), this->get_name() << ". Starting...");
 
   sensor_cfg_ptr_ =
-    std::make_shared<drivers::continental_ars548::ContinentalARS548SensorConfiguration>(
+    std::make_shared<drivers::continental_ars548::ContinentalArs548SensorConfiguration>(
       sensor_configuration);
 
   wrapper_status_ = InitializeDriver(
-    std::const_pointer_cast<drivers::continental_ars548::ContinentalARS548SensorConfiguration>(
+    std::const_pointer_cast<drivers::continental_ars548::ContinentalArs548SensorConfiguration>(
       sensor_cfg_ptr_));
 
   RCLCPP_INFO_STREAM(this->get_logger(), this->get_name() << "Wrapper=" << wrapper_status_);
   packets_sub_ = create_subscription<nebula_msgs::msg::NebulaPackets>(
     "nebula_packets", rclcpp::SensorDataQoS(),
     std::bind(
-      &ContinentalARS548DriverRosWrapper::ReceivePacketsMsgCallback, this, std::placeholders::_1));
+      &ContinentalArs548DriverRosWrapper::ReceivePacketsMsgCallback, this, std::placeholders::_1));
 
   detection_list_pub_ =
     this->create_publisher<continental_msgs::msg::ContinentalArs548DetectionList>(
@@ -75,36 +75,36 @@ ContinentalARS548DriverRosWrapper::ContinentalARS548DriverRosWrapper(
     this->create_publisher<diagnostic_msgs::msg::DiagnosticArray>("diagnostics", 10);
 }
 
-void ContinentalARS548DriverRosWrapper::ReceivePacketsMsgCallback(
+void ContinentalArs548DriverRosWrapper::ReceivePacketsMsgCallback(
   const nebula_msgs::msg::NebulaPackets::SharedPtr scan_msg)
 {
   decoder_ptr_->ProcessPackets(*scan_msg);
 }
 
-Status ContinentalARS548DriverRosWrapper::InitializeDriver(
+Status ContinentalArs548DriverRosWrapper::InitializeDriver(
   std::shared_ptr<drivers::SensorConfigurationBase> sensor_configuration)
 {
-  decoder_ptr_ = std::make_shared<drivers::continental_ars548::ContinentalARS548Decoder>(
-    std::static_pointer_cast<drivers::continental_ars548::ContinentalARS548SensorConfiguration>(
+  decoder_ptr_ = std::make_shared<drivers::continental_ars548::ContinentalArs548Decoder>(
+    std::static_pointer_cast<drivers::continental_ars548::ContinentalArs548SensorConfiguration>(
       sensor_configuration));
 
   decoder_ptr_->RegisterDetectionListCallback(std::bind(
-    &ContinentalARS548DriverRosWrapper::DetectionListCallback, this, std::placeholders::_1));
+    &ContinentalArs548DriverRosWrapper::DetectionListCallback, this, std::placeholders::_1));
   decoder_ptr_->RegisterObjectListCallback(
-    std::bind(&ContinentalARS548DriverRosWrapper::ObjectListCallback, this, std::placeholders::_1));
+    std::bind(&ContinentalArs548DriverRosWrapper::ObjectListCallback, this, std::placeholders::_1));
   decoder_ptr_->RegisterSensorStatusCallback(std::bind(
-    &ContinentalARS548DriverRosWrapper::SensorStatusCallback, this, std::placeholders::_1));
+    &ContinentalArs548DriverRosWrapper::SensorStatusCallback, this, std::placeholders::_1));
 
   return Status::OK;
 }
 
-Status ContinentalARS548DriverRosWrapper::GetStatus()
+Status ContinentalArs548DriverRosWrapper::GetStatus()
 {
   return wrapper_status_;
 }
 
-Status ContinentalARS548DriverRosWrapper::GetParameters(
-  drivers::continental_ars548::ContinentalARS548SensorConfiguration & sensor_configuration)
+Status ContinentalArs548DriverRosWrapper::GetParameters(
+  drivers::continental_ars548::ContinentalArs548SensorConfiguration & sensor_configuration)
 {
   {
     rcl_interfaces::msg::ParameterDescriptor descriptor;
@@ -225,7 +225,7 @@ Status ContinentalARS548DriverRosWrapper::GetParameters(
   }
 
   std::shared_ptr<drivers::SensorConfigurationBase> sensor_cfg_ptr =
-    std::make_shared<drivers::continental_ars548::ContinentalARS548SensorConfiguration>(
+    std::make_shared<drivers::continental_ars548::ContinentalArs548SensorConfiguration>(
       sensor_configuration);
 
   hw_interface_.SetSensorConfiguration(
@@ -235,7 +235,7 @@ Status ContinentalARS548DriverRosWrapper::GetParameters(
   return Status::OK;
 }
 
-void ContinentalARS548DriverRosWrapper::DetectionListCallback(
+void ContinentalArs548DriverRosWrapper::DetectionListCallback(
   std::unique_ptr<continental_msgs::msg::ContinentalArs548DetectionList> msg)
 {
   if (
@@ -264,7 +264,7 @@ void ContinentalARS548DriverRosWrapper::DetectionListCallback(
   }
 }
 
-void ContinentalARS548DriverRosWrapper::ObjectListCallback(
+void ContinentalArs548DriverRosWrapper::ObjectListCallback(
   std::unique_ptr<continental_msgs::msg::ContinentalArs548ObjectList> msg)
 {
   if (
@@ -300,8 +300,8 @@ void ContinentalARS548DriverRosWrapper::ObjectListCallback(
   }
 }
 
-void ContinentalARS548DriverRosWrapper::SensorStatusCallback(
-  const drivers::continental_ars548::ContinentalARS548Status & sensor_status)
+void ContinentalArs548DriverRosWrapper::SensorStatusCallback(
+  const drivers::continental_ars548::ContinentalArs548Status & sensor_status)
 {
   diagnostic_msgs::msg::DiagnosticArray diagnostic_array_msg;
   diagnostic_array_msg.header.stamp.sec = sensor_status.timestamp_seconds;
@@ -414,15 +414,15 @@ void ContinentalARS548DriverRosWrapper::SensorStatusCallback(
   diagnostics_pub_->publish(diagnostic_array_msg);
 }
 
-pcl::PointCloud<nebula::drivers::continental_ars548::PointARS548Detection>::Ptr
-ContinentalARS548DriverRosWrapper::ConvertToPointcloud(
+pcl::PointCloud<nebula::drivers::continental_ars548::PointArs548Detection>::Ptr
+ContinentalArs548DriverRosWrapper::ConvertToPointcloud(
   const continental_msgs::msg::ContinentalArs548DetectionList & msg)
 {
-  pcl::PointCloud<nebula::drivers::continental_ars548::PointARS548Detection>::Ptr output_pointcloud(
-    new pcl::PointCloud<nebula::drivers::continental_ars548::PointARS548Detection>);
+  pcl::PointCloud<nebula::drivers::continental_ars548::PointArs548Detection>::Ptr output_pointcloud(
+    new pcl::PointCloud<nebula::drivers::continental_ars548::PointArs548Detection>);
   output_pointcloud->reserve(msg.detections.size());
 
-  nebula::drivers::continental_ars548::PointARS548Detection point{};
+  nebula::drivers::continental_ars548::PointArs548Detection point{};
   for (const auto & detection : msg.detections) {
     point.x =
       std::cos(detection.elevation_angle) * std::cos(detection.azimuth_angle) * detection.range;
@@ -454,15 +454,15 @@ ContinentalARS548DriverRosWrapper::ConvertToPointcloud(
   return output_pointcloud;
 }
 
-pcl::PointCloud<nebula::drivers::continental_ars548::PointARS548Object>::Ptr
-ContinentalARS548DriverRosWrapper::ConvertToPointcloud(
+pcl::PointCloud<nebula::drivers::continental_ars548::PointArs548Object>::Ptr
+ContinentalArs548DriverRosWrapper::ConvertToPointcloud(
   const continental_msgs::msg::ContinentalArs548ObjectList & msg)
 {
-  pcl::PointCloud<nebula::drivers::continental_ars548::PointARS548Object>::Ptr output_pointcloud(
-    new pcl::PointCloud<nebula::drivers::continental_ars548::PointARS548Object>);
+  pcl::PointCloud<nebula::drivers::continental_ars548::PointArs548Object>::Ptr output_pointcloud(
+    new pcl::PointCloud<nebula::drivers::continental_ars548::PointArs548Object>);
   output_pointcloud->reserve(msg.objects.size());
 
-  nebula::drivers::continental_ars548::PointARS548Object point{};
+  nebula::drivers::continental_ars548::PointArs548Object point{};
   for (const auto & object : msg.objects) {
     point.x = static_cast<float>(object.position.x);
     point.y = static_cast<float>(object.position.y);
@@ -494,7 +494,7 @@ ContinentalARS548DriverRosWrapper::ConvertToPointcloud(
   return output_pointcloud;
 }
 
-radar_msgs::msg::RadarScan ContinentalARS548DriverRosWrapper::ConvertToRadarScan(
+radar_msgs::msg::RadarScan ContinentalArs548DriverRosWrapper::ConvertToRadarScan(
   const continental_msgs::msg::ContinentalArs548DetectionList & msg)
 {
   radar_msgs::msg::RadarScan output_msg;
@@ -520,7 +520,7 @@ radar_msgs::msg::RadarScan ContinentalARS548DriverRosWrapper::ConvertToRadarScan
   return output_msg;
 }
 
-radar_msgs::msg::RadarTracks ContinentalARS548DriverRosWrapper::ConvertToRadarTracks(
+radar_msgs::msg::RadarTracks ContinentalArs548DriverRosWrapper::ConvertToRadarTracks(
   const continental_msgs::msg::ContinentalArs548ObjectList & msg)
 {
   radar_msgs::msg::RadarTracks output_msg;
@@ -629,7 +629,7 @@ radar_msgs::msg::RadarTracks ContinentalARS548DriverRosWrapper::ConvertToRadarTr
   return output_msg;
 }
 
-visualization_msgs::msg::MarkerArray ContinentalARS548DriverRosWrapper::ConvertToMarkers(
+visualization_msgs::msg::MarkerArray ContinentalArs548DriverRosWrapper::ConvertToMarkers(
   const continental_msgs::msg::ContinentalArs548ObjectList & msg)
 {
   visualization_msgs::msg::MarkerArray marker_array;
@@ -797,6 +797,6 @@ visualization_msgs::msg::MarkerArray ContinentalARS548DriverRosWrapper::ConvertT
   return marker_array;
 }
 
-RCLCPP_COMPONENTS_REGISTER_NODE(ContinentalARS548DriverRosWrapper)
+RCLCPP_COMPONENTS_REGISTER_NODE(ContinentalArs548DriverRosWrapper)
 }  // namespace ros
 }  // namespace nebula

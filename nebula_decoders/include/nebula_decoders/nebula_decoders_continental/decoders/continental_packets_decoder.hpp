@@ -46,7 +46,7 @@ public:
   /// @brief Virtual function for parsing NebulaPackets based on packet structure
   /// @param nebula_packets
   /// @return Resulting flag
-  virtual bool ProcessPackets(const nebula_msgs::msg::NebulaPackets & nebula_packets) = 0;
+  virtual bool ProcessPacket(std::unique_ptr<nebula_msgs::msg::NebulaPacket> packet_msg) = 0;
 };
 }  // namespace drivers
 }  // namespace nebula

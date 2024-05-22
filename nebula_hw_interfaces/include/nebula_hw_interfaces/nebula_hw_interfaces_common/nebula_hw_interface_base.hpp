@@ -23,7 +23,7 @@ protected:
    * @param buffer Buffer containing the data received from the UDP socket
    * @return Status::OK if no error occurred.
    */
-  virtual void ReceiveCloudPacketCallback(const std::vector<uint8_t> & buffer) = 0;
+  virtual void ReceiveSensorPacketCallback([[maybe_unused]] std::vector<uint8_t> & buffer) {}
   //  virtual Status RegisterScanCallback(
   //    std::function<void(std::unique_ptr<std::vector<std::vector<uint8_t>>>)> scan_callback) = 0;
 

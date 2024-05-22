@@ -29,14 +29,19 @@ namespace drivers
 {
 namespace continental_srr520
 {
-ContinentalSRR520Decoder::ContinentalSRR520Decoder(
-  const std::shared_ptr<continental_srr520::ContinentalSRR520SensorConfiguration> &
+ContinentalSrr520Decoder::ContinentalSrr520Decoder(
+  const std::shared_ptr<const continental_srr520::ContinentalSrr520SensorConfiguration> &
     sensor_configuration)
 {
   sensor_configuration_ = sensor_configuration;
 }
 
-Status ContinentalSRR520Decoder::RegisterNearDetectionListCallback(
+Status ContinentalSrr520Decoder::GetStatus()
+{
+  return Status::OK;
+}
+
+Status ContinentalSrr520Decoder::RegisterNearDetectionListCallback(
   std::function<void(std::unique_ptr<continental_msgs::msg::ContinentalSrr520DetectionList>)>
     detection_list_callback)
 {
@@ -44,7 +49,7 @@ Status ContinentalSRR520Decoder::RegisterNearDetectionListCallback(
   return Status::OK;
 }
 
-Status ContinentalSRR520Decoder::RegisterHRRDetectionListCallback(
+Status ContinentalSrr520Decoder::RegisterHRRDetectionListCallback(
   std::function<void(std::unique_ptr<continental_msgs::msg::ContinentalSrr520DetectionList>)>
     detection_list_callback)
 {
@@ -52,7 +57,7 @@ Status ContinentalSRR520Decoder::RegisterHRRDetectionListCallback(
   return Status::OK;
 }
 
-Status ContinentalSRR520Decoder::RegisterObjectListCallback(
+Status ContinentalSrr520Decoder::RegisterObjectListCallback(
   std::function<void(std::unique_ptr<continental_msgs::msg::ContinentalSrr520ObjectList>)>
     object_list_callback)
 {
@@ -60,324 +65,671 @@ Status ContinentalSRR520Decoder::RegisterObjectListCallback(
   return Status::OK;
 }
 
-Status ContinentalSRR520Decoder::RegisterStatusCallback(
+Status ContinentalSrr520Decoder::RegisterStatusCallback(
   std::function<void(std::unique_ptr<diagnostic_msgs::msg::DiagnosticArray>)> status_callback)
 {
   status_callback_ = std::move(status_callback);
   return Status::OK;
 }
 
-bool ContinentalSRR520Decoder::ProcessPackets(
-  const nebula_msgs::msg::NebulaPackets & nebula_packets)
+Status ContinentalSrr520Decoder::RegisterSyncFupCallback(std::function<void()> sync_fup_callback)
 {
-  if (nebula_packets.packets.size() == 0 || nebula_packets.packets.front().data.size() < 2) {
+  sync_fup_callback_ = std::move(sync_fup_callback);
+  return Status::OK;
+}
+
+Status ContinentalSrr520Decoder::RegisterPacketsCallback(
+  std::function<void(std::unique_ptr<nebula_msgs::msg::NebulaPackets>)> nebula_packets_callback)
+{
+  nebula_packets_callback_ = std::move(nebula_packets_callback);
+  return Status::OK;
+}
+
+bool ContinentalSrr520Decoder::ProcessPacket(
+  std::unique_ptr<nebula_msgs::msg::NebulaPacket> packet_msg)
+{
+  const uint32_t can_message_id = (static_cast<uint32_t>(packet_msg->data[0]) << 24) |
+                                  (static_cast<uint32_t>(packet_msg->data[1]) << 16) |
+                                  (static_cast<uint32_t>(packet_msg->data[2]) << 8) |
+                                  static_cast<uint32_t>(packet_msg->data[3]);
+
+  std::size_t payload_size = packet_msg->data.size() - 4;
+
+  if (can_message_id == RDI_NEAR_HEADER_CAN_MESSAGE_ID) {
+    if (payload_size != RDI_NEAR_HEADER_PACKET_SIZE) {
+      PrintError("RDI_NEAR_HEADER_CAN_MESSAGE_ID message with invalid size");
+      return false;
+    }
+    ProcessNearHeaderPacket(std::move(packet_msg));
+  } else if (can_message_id == RDI_NEAR_ELEMENT_CAN_MESSAGE_ID) {
+    if (payload_size != RDI_NEAR_ELEMENT_PACKET_SIZE) {
+      PrintError("RDI_NEAR_ELEMENT_CAN_MESSAGE_ID message with invalid size");
+      return false;
+    }
+
+    ProcessNearElementPacket(std::move(packet_msg));
+  } else if (can_message_id == RDI_HRR_HEADER_CAN_MESSAGE_ID) {
+    if (payload_size != RDI_HRR_HEADER_PACKET_SIZE) {
+      PrintError("RDI_HRR_HEADER_CAN_MESSAGE_ID message with invalid size");
+      return false;
+    }
+    ProcessHRRHeaderPacket(std::move(packet_msg));
+  } else if (can_message_id == RDI_HRR_ELEMENT_CAN_MESSAGE_ID) {
+    if (payload_size != RDI_HRR_ELEMENT_PACKET_SIZE) {
+      PrintError("RDI_HRR_ELEMENT_CAN_MESSAGE_ID message with invalid size");
+      return false;
+    }
+
+    ProcessHRRElementPacket(std::move(packet_msg));
+  } else if (can_message_id == OBJECT_HEADER_CAN_MESSAGE_ID) {
+    if (payload_size != OBJECT_HEADER_PACKET_SIZE) {
+      PrintError("OBJECT_HEADER_CAN_MESSAGE_ID message with invalid size");
+      return false;
+    }
+    ProcessObjectHeaderPacket(std::move(packet_msg));
+  } else if (can_message_id == OBJECT_CAN_MESSAGE_ID) {
+    if (payload_size != OBJECT_PACKET_SIZE) {
+      PrintError("OBJECT_ELEMENT_CAN_MESSAGE_ID message with invalid size");
+      return false;
+    }
+
+    ProcessObjectElementPacket(std::move(packet_msg));
+  } else if (can_message_id == CRC_LIST_CAN_MESSAGE_ID) {
+    if (payload_size != CRC_LIST_PACKET_SIZE) {
+      PrintError("CRC_LIST_CAN_MESSAGE_ID message with invalid size");
+      return false;
+    }
+
+    ProcessCRCListPacket(std::move(packet_msg));
+  } else if (can_message_id == STATUS_CAN_MESSAGE_ID) {
+    if (payload_size != STATUS_PACKET_SIZE) {
+      PrintError("CRC_LIST_CAN_MESSAGE_ID message with invalid size");
+      return false;
+    }
+
+    ProcessSensorStatusPacket(std::move(packet_msg));
+  } else if (can_message_id == SYNC_FUP_CAN_MESSAGE_ID) {
+    if (payload_size != SYNC_FUP_CAN_PACKET_SIZE) {
+      PrintError("SYNC_FUP_CAN_MESSAGE_ID message with invalid size");
+      return false;
+    }
+
+    ProcessSyncFupPacket(std::move(packet_msg));
+  } else if (
+    can_message_id != VEH_DYN_CAN_MESSAGE_ID && can_message_id != SENSOR_CONFIG_CAN_MESSAGE_ID) {
+    PrintError("Unrecognized message ID=" + std::to_string(can_message_id));
     return false;
   }
 
-  const auto & can_id_messages = nebula_packets.packets.front().data;
-  const int can_message_id = (static_cast<uint16_t>(can_id_messages[1]) << 8) | can_id_messages[0];
+  return true;
+}
+
+void ContinentalSrr520Decoder::ProcessNearHeaderPacket(
+  std::unique_ptr<nebula_msgs::msg::NebulaPacket> packet_msg)
+{
+  rdi_near_packets_ptr_ = std::make_unique<nebula_msgs::msg::NebulaPackets>();
+  near_detection_list_ptr_ =
+    std::make_unique<continental_msgs::msg::ContinentalSrr520DetectionList>();
+  first_rdi_near_packet_ = false;
+
+  static_assert(sizeof(ScanHeaderPacket) == RDI_NEAR_HEADER_PACKET_SIZE);
+  static_assert(sizeof(DetectionPacket) == RDI_NEAR_ELEMENT_PACKET_SIZE);
+  assert(packet_msg->data.size() == RDI_NEAR_HEADER_PACKET_SIZE + 4);
+
+  std::memcpy(
+    &rdi_near_header_packet_, packet_msg->data.data() + 4 * sizeof(uint8_t),
+    sizeof(ScanHeaderPacket));
+
+  assert(
+    rdi_near_header_packet_.u_global_time_stamp_sync_status >= 1 &&
+    rdi_near_header_packet_.u_global_time_stamp_sync_status <= 3);
+
+  near_detection_list_ptr_->header.frame_id = sensor_configuration_->frame_id;
+
+  if (rdi_near_header_packet_.u_global_time_stamp_sync_status == 1) {
+    near_detection_list_ptr_->header.stamp.sec =
+      rdi_near_header_packet_.u_global_time_stamp_sec.value();
+    near_detection_list_ptr_->header.stamp.nanosec =
+      rdi_near_header_packet_.u_global_time_stamp_nsec.value();
+  } else {
+    near_detection_list_ptr_->header.stamp = packet_msg->stamp;
+  }
+
+  rdi_near_packets_ptr_->header.stamp = packet_msg->stamp;
+  rdi_near_packets_ptr_->header.frame_id = sensor_configuration_->frame_id;
+
+  near_detection_list_ptr_->internal_time_stamp_usec = rdi_near_header_packet_.u_time_stamp.value();
+  near_detection_list_ptr_->global_time_stamp_sync_status =
+    rdi_near_header_packet_.u_global_time_stamp_sync_status;
+  near_detection_list_ptr_->signal_status = rdi_near_header_packet_.u_signal_status;
+  near_detection_list_ptr_->sequence_counter = rdi_near_header_packet_.u_sequence_counter;
+  near_detection_list_ptr_->cycle_counter = rdi_near_header_packet_.u_cycle_counter.value();
+  near_detection_list_ptr_->vambig =
+    0.003051851f * rdi_near_header_packet_.u_vambig.value() - 100.f;  // cSpell:ignore vambig
+  near_detection_list_ptr_->max_range = 0.1f * rdi_near_header_packet_.u_max_range.value();
+
+  near_detection_list_ptr_->detections.reserve(
+    rdi_near_header_packet_.u_number_of_detections.value());
+
+  rdi_near_packets_ptr_->packets.emplace_back(std::move(*packet_msg));
+}
+
+void ContinentalSrr520Decoder::ProcessNearElementPacket(
+  std::unique_ptr<nebula_msgs::msg::NebulaPacket> packet_msg)
+{
+  if (rdi_near_packets_ptr_->packets.size() == 0) {
+    if (!first_rdi_near_packet_) {
+      PrintError("Near element before header. This can happen during the first iteration");
+    }
+    return;
+  }
+
+  int parsed_detections = near_detection_list_ptr_->detections.size();
 
   if (
-    can_message_id == RDI_NEAR_HEADER_CAN_MESSAGE_ID &&
-    nebula_packets.packets.size() == RDI_NEAR_PACKET_NUM + 2) {
-    return ParseDetectionsListPacket(nebula_packets, true);
-  } else if (
-    can_message_id == RDI_HRR_HEADER_CAN_MESSAGE_ID &&
-    nebula_packets.packets.size() == RDI_HRR_PACKET_NUM + 2) {
-    return ParseDetectionsListPacket(nebula_packets, false);
-  } else if (
-    can_message_id == OBJECT_HEADER_CAN_MESSAGE_ID &&
-    nebula_packets.packets.size() == OBJECT_PACKET_NUM + 2) {
-    return ParseObjectsListPacket(nebula_packets);
-  } else if (can_message_id == STATUS_CAN_MESSAGE_ID && nebula_packets.packets.size() == 2) {
-    return ParseStatusPacket(nebula_packets);
+    near_detection_list_ptr_->detections.size() >=
+    rdi_near_header_packet_.u_number_of_detections.value()) {
+    return;
   }
 
-  return false;
-}
+  DetectionPacket detection_packet;
+  std::memcpy(
+    &detection_packet, packet_msg->data.data() + 4 * sizeof(uint8_t), sizeof(DetectionPacket));
 
-bool ContinentalSRR520Decoder::ParseDetectionsListPacket(
-  const nebula_msgs::msg::NebulaPackets & nebula_packets, bool near)
-{
-  assert(near || nebula_packets.packets.size() != RDI_NEAR_PACKET_NUM);
-  assert(!near || nebula_packets.packets.size() != RDI_HRR_PACKET_NUM);
-  static_assert(sizeof(ScanHeaderPacket) == RDI_NEAR_HEADER_PACKET_SIZE);
-  static_assert(sizeof(ScanHeaderPacket) == RDI_HRR_HEADER_PACKET_SIZE);
   static_assert(sizeof(DetectionPacket) == RDI_NEAR_ELEMENT_PACKET_SIZE);
-  static_assert(sizeof(DetectionPacket) == RDI_HRR_ELEMENT_PACKET_SIZE);
+  assert(packet_msg->data.size() == RDI_NEAR_ELEMENT_PACKET_SIZE + 4);
+  assert(rdi_near_header_packet_.u_sequence_counter == detection_packet.u_sequence_counter);
+  assert(rdi_near_packets_ptr_->packets.size() == detection_packet.u_message_counter + 1);
 
-  ScanHeaderPacket header_packet;
-  assert(nebula_packets.packets[1].data.size() == RDI_NEAR_HEADER_PACKET_SIZE);
+  for (const auto & fragment : detection_packet.fragments) {
+    continental_msgs::msg::ContinentalSrr520Detection detection_msg;
+    const auto & data = fragment.data;
 
-  std::memcpy(&header_packet, nebula_packets.packets[1].data.data(), sizeof(ScanHeaderPacket));
-
-  auto scan_msg = std::make_unique<continental_msgs::msg::ContinentalSrr520DetectionList>();
-
-  assert(
-    header_packet.u_global_time_stamp_sync_status >= 1 &&
-    header_packet.u_global_time_stamp_sync_status <= 3);
-
-  scan_msg->header = nebula_packets.header;
-  scan_msg->header.frame_id = sensor_configuration_->frame_id;
-
-  if (header_packet.u_global_time_stamp_sync_status == 1) {
-    scan_msg->header.stamp.sec = header_packet.u_global_time_stamp_sec.value();
-    scan_msg->header.stamp.nanosec = header_packet.u_global_time_stamp_nsec.value();
-  }
-
-  scan_msg->internal_time_stamp_usec = header_packet.u_time_stamp.value();
-  scan_msg->global_time_stamp_sync_status = header_packet.u_global_time_stamp_sync_status;
-  scan_msg->signal_status = header_packet.u_signal_status;
-  scan_msg->sequence_counter = header_packet.u_sequence_counter;
-  scan_msg->cycle_counter = header_packet.u_cycle_counter.value();
-  scan_msg->vambig = 0.003051851f * header_packet.u_vambig.value() - 100.f;  // cSpell:ignore vambig
-  scan_msg->max_range = 0.1f * header_packet.u_max_range.value();
-
-  int parsed_detections = 0;
-  int detection_packet_index = 0;
-  scan_msg->detections.reserve(header_packet.u_number_of_detections.value());
-
-  for (auto it = nebula_packets.packets.cbegin() + 2; it != nebula_packets.packets.cend(); it++) {
-    assert(it->data.size() == RDI_NEAR_ELEMENT_PACKET_SIZE);
-
-    if (parsed_detections >= header_packet.u_number_of_detections.value()) {
+    if (parsed_detections >= rdi_near_header_packet_.u_number_of_detections.value()) {
       break;
     }
 
-    DetectionPacket detection_packet;
-    std::memcpy(&detection_packet, it->data.data(), sizeof(DetectionPacket));
+    uint16_t u_range =
+      (static_cast<uint16_t>(data[0]) << 4) | (static_cast<uint16_t>(data[1] & 0xF0) >> 4);
+    assert(u_range <= 4095);
+    detection_msg.range = 0.024420024 * u_range;
 
-    assert(header_packet.u_sequence_counter == detection_packet.u_sequence_counter);
-    assert(detection_packet_index == detection_packet.u_message_counter);
+    uint16_t u_azimuth =
+      (static_cast<uint16_t>(data[1] & 0x0f) << 5) | (static_cast<uint16_t>(data[2] & 0xF8) >> 3);
+    assert(u_azimuth <= 510);
+    detection_msg.azimuth_angle = 0.006159986 * u_azimuth - 1.570796327;
 
-    for (const auto & fragment : detection_packet.fragments) {
-      continental_msgs::msg::ContinentalSrr520Detection detection_msg;
-      const auto & data = fragment.data;
+    uint16_t u_range_rate =
+      (static_cast<uint16_t>(data[2] & 0x07) << 8) | static_cast<uint16_t>(data[3]);
+    assert(u_range_rate <= 2046);
+    detection_msg.range_rate = 0.014662757 * u_range_rate - 15.f;
 
-      if (parsed_detections >= header_packet.u_number_of_detections.value()) {
-        break;
-      }
+    uint16_t u_rcs = (data[4] & 0xFE) >> 1;
+    assert(u_rcs <= 126);
+    detection_msg.rcs = 0.476190476 * u_rcs - 40.f;
 
-      uint16_t u_range =
-        (static_cast<uint16_t>(data[0]) << 4) | (static_cast<uint16_t>(data[1] & 0xF0) >> 4);
-      assert(u_range <= 4095);
-      detection_msg.range = 0.024420024 * u_range;
+    detection_msg.pdh00 = 100 * (data[4] & 0x01);
+    detection_msg.pdh01 = 100 * ((data[5] & 0x80) >> 7);
+    detection_msg.pdh02 = 100 * ((data[5] & 0x40) >> 6);
+    detection_msg.pdh03 = 100 * ((data[5] & 0x20) >> 5);
+    detection_msg.pdh04 = 100 * ((data[5] & 0x10) >> 4);
 
-      uint16_t u_azimuth =
-        (static_cast<uint16_t>(data[1] & 0x0f) << 5) | (static_cast<uint16_t>(data[2] & 0xF8) >> 3);
-      assert(u_azimuth <= 510);
-      detection_msg.azimuth_angle = 0.006159986 * u_azimuth - 1.570796327;
+    uint8_t u_snr = data[5] & 0x0f;
+    detection_msg.snr = 1.7 * u_snr + 11.f;
 
-      uint16_t u_range_rate =
-        (static_cast<uint16_t>(data[2] & 0x07) << 8) | static_cast<uint16_t>(data[3]);
-      assert(u_range_rate <= 2046);
-      detection_msg.range_rate = 0.014662757 * u_range_rate - 15.f;
-
-      uint16_t u_rcs = (data[4] & 0xFE) >> 1;
-      assert(u_rcs <= 126);
-      detection_msg.rcs = 0.476190476 * u_rcs - 40.f;
-
-      detection_msg.pdh00 = 100 * (data[4] & 0x01);
-      detection_msg.pdh01 = 100 * ((data[5] & 0x80) >> 7);
-      detection_msg.pdh02 = 100 * ((data[5] & 0x40) >> 6);
-      detection_msg.pdh03 = 100 * ((data[5] & 0x20) >> 5);
-      detection_msg.pdh04 = 100 * ((data[5] & 0x10) >> 4);
-
-      uint8_t u_snr = data[5] & 0x0f;
-      detection_msg.snr = 1.7 * u_snr + 11.f;
-
-      scan_msg->detections.push_back(detection_msg);
-      parsed_detections++;
-    }
-
-    detection_packet_index++;
+    near_detection_list_ptr_->detections.push_back(detection_msg);
+    parsed_detections++;
   }
 
-  if (near) {
-    near_detection_list_callback_(std::move(scan_msg));
-  } else {
-    hrr_detection_list_callback_(std::move(scan_msg));
-  }
-
-  return true;
+  rdi_near_packets_ptr_->packets.emplace_back(std::move(*packet_msg));
 }
 
-bool ContinentalSRR520Decoder::ParseObjectsListPacket(
-  const nebula_msgs::msg::NebulaPackets & nebula_packets)
+void ContinentalSrr520Decoder::ProcessHRRHeaderPacket(
+  std::unique_ptr<nebula_msgs::msg::NebulaPacket> packet_msg)
 {
-  assert(nebula_packets.packets.size() != OBJECT_PACKET_NUM);
-  static_assert(sizeof(ObjectHeaderPacket) == OBJECT_HEADER_PACKET_SIZE);
+  rdi_hrr_packets_ptr_ = std::make_unique<nebula_msgs::msg::NebulaPackets>();
+  hrr_detection_list_ptr_ =
+    std::make_unique<continental_msgs::msg::ContinentalSrr520DetectionList>();
+  first_rdi_hrr_packet_ = false;
 
-  ObjectHeaderPacket header_packet;
-  assert(nebula_packets.packets[1].data.size() == RDI_NEAR_HEADER_PACKET_SIZE);
+  static_assert(sizeof(ScanHeaderPacket) == RDI_HRR_HEADER_PACKET_SIZE);
+  assert(packet_msg->data.size() == RDI_NEAR_HEADER_PACKET_SIZE + 4);
 
-  std::memcpy(&header_packet, nebula_packets.packets[1].data.data(), sizeof(ScanHeaderPacket));
-
-  auto objects_msg = std::make_unique<continental_msgs::msg::ContinentalSrr520ObjectList>();
+  std::memcpy(
+    &rdi_hrr_header_packet_, packet_msg->data.data() + 4 * sizeof(uint8_t),
+    sizeof(ScanHeaderPacket));
 
   assert(
-    header_packet.u_global_time_stamp_sync_status >= 1 &&
-    header_packet.u_global_time_stamp_sync_status <= 3);
+    rdi_hrr_header_packet_.u_global_time_stamp_sync_status >= 1 &&
+    rdi_hrr_header_packet_.u_global_time_stamp_sync_status <= 3);
 
-  objects_msg->header = nebula_packets.header;
-  objects_msg->header.frame_id = sensor_configuration_->base_frame;
+  hrr_detection_list_ptr_->header.frame_id = sensor_configuration_->frame_id;
 
-  if (header_packet.u_global_time_stamp_sync_status == 1) {
-    objects_msg->header.stamp.sec = header_packet.u_global_time_stamp_sec.value();
-    objects_msg->header.stamp.nanosec = header_packet.u_global_time_stamp_nsec.value();
+  if (rdi_hrr_header_packet_.u_global_time_stamp_sync_status == 1) {
+    hrr_detection_list_ptr_->header.stamp.sec =
+      rdi_hrr_header_packet_.u_global_time_stamp_sec.value();
+    hrr_detection_list_ptr_->header.stamp.nanosec =
+      rdi_hrr_header_packet_.u_global_time_stamp_nsec.value();
+  } else {
+    hrr_detection_list_ptr_->header.stamp = packet_msg->stamp;
   }
 
-  objects_msg->internal_time_stamp_usec = header_packet.u_time_stamp.value();
-  objects_msg->global_time_stamp_sync_status = header_packet.u_global_time_stamp_sync_status;
-  objects_msg->signal_status = header_packet.u_signal_status;
-  objects_msg->sequence_counter = header_packet.u_sequence_counter;
-  objects_msg->cycle_counter = header_packet.u_cycle_counter.value();
-  objects_msg->ego_vx = 0.003051851 * header_packet.u_ego_vx.value() - 100.f;
-  objects_msg->ego_yaw_rate = 9.58766e-05 * header_packet.u_ego_yaw_rate.value() - 3.14159;
-  objects_msg->motion_type = header_packet.u_motion_type;
+  rdi_hrr_packets_ptr_->header.stamp = packet_msg->stamp;
+  rdi_hrr_packets_ptr_->header.frame_id = sensor_configuration_->frame_id;
 
-  int parsed_objects = 0;
-  int object_packet_index = 0;
-  objects_msg->objects.reserve(header_packet.u_number_of_objects);
+  near_detection_list_ptr_->internal_time_stamp_usec = rdi_near_header_packet_.u_time_stamp.value();
+  near_detection_list_ptr_->global_time_stamp_sync_status =
+    rdi_near_header_packet_.u_global_time_stamp_sync_status;
+  near_detection_list_ptr_->signal_status = rdi_near_header_packet_.u_signal_status;
+  near_detection_list_ptr_->sequence_counter = rdi_near_header_packet_.u_sequence_counter;
+  near_detection_list_ptr_->cycle_counter = rdi_near_header_packet_.u_cycle_counter.value();
+  near_detection_list_ptr_->vambig =
+    0.003051851f * rdi_near_header_packet_.u_vambig.value() - 100.f;  // cSpell:ignore vambig
+  near_detection_list_ptr_->max_range = 0.1f * rdi_near_header_packet_.u_max_range.value();
 
-  for (auto it = nebula_packets.packets.cbegin() + 2; it != nebula_packets.packets.cend(); it++) {
-    assert(it->data.size() == OBJECT_PACKET_SIZE);
+  near_detection_list_ptr_->detections.reserve(
+    rdi_near_header_packet_.u_number_of_detections.value());
 
-    if (parsed_objects >= header_packet.u_number_of_objects) {
+  rdi_near_packets_ptr_->packets.emplace_back(std::move(*packet_msg));
+}
+
+void ContinentalSrr520Decoder::ProcessHRRElementPacket(
+  std::unique_ptr<nebula_msgs::msg::NebulaPacket> packet_msg)
+{
+  if (rdi_hrr_packets_ptr_->packets.size() == 0) {
+    if (!first_rdi_hrr_packet_) {
+      PrintError("HRR element before header. This can happen during the first iteration");
+    }
+    return;
+  }
+
+  int parsed_detections = hrr_detection_list_ptr_->detections.size();
+
+  if (
+    hrr_detection_list_ptr_->detections.size() >=
+    rdi_hrr_header_packet_.u_number_of_detections.value()) {
+    return;
+  }
+
+  DetectionPacket detection_packet;
+  std::memcpy(
+    &detection_packet, packet_msg->data.data() + 4 * sizeof(uint8_t), sizeof(DetectionPacket));
+
+  static_assert(sizeof(DetectionPacket) == RDI_HRR_ELEMENT_PACKET_SIZE);
+  assert(packet_msg->data.size() == RDI_HRR_ELEMENT_PACKET_SIZE + 4);
+  assert(rdi_hrr_header_packet_.u_sequence_counter == detection_packet.u_sequence_counter);
+  assert(rdi_hrr_packets_ptr_->packets.size() == detection_packet.u_message_counter + 1);
+
+  for (const auto & fragment : detection_packet.fragments) {
+    continental_msgs::msg::ContinentalSrr520Detection detection_msg;
+    const auto & data = fragment.data;
+
+    if (parsed_detections >= rdi_hrr_header_packet_.u_number_of_detections.value()) {
       break;
     }
 
-    ObjectPacket object_packet;
-    std::memcpy(&object_packet, it->data.data(), sizeof(ObjectPacket));
-    static_assert(sizeof(ObjectPacket) == OBJECT_PACKET_SIZE);
+    uint16_t u_range =
+      (static_cast<uint16_t>(data[0]) << 4) | (static_cast<uint16_t>(data[1] & 0xF0) >> 4);
+    assert(u_range <= 4095);
+    detection_msg.range = 0.024420024 * u_range;
 
-    assert(header_packet.u_sequence_counter == object_packet.u_sequence_counter);
-    assert(object_packet_index == object_packet.u_message_counter);
+    uint16_t u_azimuth =
+      (static_cast<uint16_t>(data[1] & 0x0f) << 5) | (static_cast<uint16_t>(data[2] & 0xF8) >> 3);
+    assert(u_azimuth <= 510);
+    detection_msg.azimuth_angle = 0.006159986 * u_azimuth - 1.570796327;
 
-    for (const auto & fragment : object_packet.fragments) {
-      continental_msgs::msg::ContinentalSrr520Object object_msg;
-      const auto & data = fragment.data;
+    uint16_t u_range_rate =
+      (static_cast<uint16_t>(data[2] & 0x07) << 8) | static_cast<uint16_t>(data[3]);
+    assert(u_range_rate <= 2046);
+    detection_msg.range_rate = 0.014662757 * u_range_rate - 15.f;
 
-      if (parsed_objects >= header_packet.u_number_of_objects) {
-        break;
-      }
+    uint16_t u_rcs = (data[4] & 0xFE) >> 1;
+    assert(u_rcs <= 126);
+    detection_msg.rcs = 0.476190476 * u_rcs - 40.f;
 
-      object_msg.object_id = data[0];
+    detection_msg.pdh00 = 100 * (data[4] & 0x01);
+    detection_msg.pdh01 = 100 * ((data[5] & 0x80) >> 7);
+    detection_msg.pdh02 = 100 * ((data[5] & 0x40) >> 6);
+    detection_msg.pdh03 = 100 * ((data[5] & 0x20) >> 5);
+    detection_msg.pdh04 = 100 * ((data[5] & 0x10) >> 4);
 
-      uint16_t u_dist_x = ((static_cast<uint16_t>(data[1]) << 8) | data[2]);
-      uint16_t u_dist_y = ((static_cast<uint16_t>(data[3]) << 8) | data[4]);
-      assert(u_dist_x <= 65534);
-      assert(u_dist_y <= 65534);
-      object_msg.dist_x = 0.009155553 * u_dist_x - 300.f;
-      object_msg.dist_y = 0.009155553 * u_dist_y - 300.f;
+    uint8_t u_snr = data[5] & 0x0f;
+    detection_msg.snr = 1.7 * u_snr + 11.f;
 
-      uint16_t u_v_abs_x =
-        (static_cast<uint16_t>(data[5]) << 6) | (static_cast<uint16_t>(data[6] & 0xfc) >> 2);
-      assert(u_v_abs_x <= 16382);
-      object_msg.v_abs_x = 0.009156391 * u_v_abs_x - 75.f;
-
-      uint16_t u_v_abs_y = (static_cast<uint16_t>(data[6] & 0x03) << 12) |
-                           (static_cast<uint16_t>(data[7]) << 4) |
-                           (static_cast<uint16_t>(data[8] & 0xF0) >> 4);
-      assert(u_v_abs_y <= 16382);
-      object_msg.v_abs_y = 0.009156391 * u_v_abs_y - 75.f;
-
-      uint16_t u_a_abs_x =
-        (static_cast<uint16_t>(data[8] & 0x0f) << 6) | (static_cast<uint16_t>(data[9] & 0xfc) >> 2);
-      assert(u_a_abs_x <= 1022);
-      object_msg.a_abs_x = 0.019569472 * u_a_abs_x - 10.f;
-
-      uint16_t u_a_abs_y =
-        (static_cast<uint16_t>(data[9] & 0x03) << 8) | static_cast<uint16_t>(data[10]);
-      assert(u_a_abs_y <= 1022);
-      object_msg.a_abs_y = 0.019569472 * u_a_abs_y - 10.f;
-
-      uint16_t u_dist_x_std =
-        (static_cast<uint16_t>(data[11]) << 6) | (static_cast<uint16_t>(data[12] & 0xfc) >> 2);
-      assert(u_dist_x_std <= 16383);
-      object_msg.dist_x_std = 0.001831166 * u_dist_x_std;
-
-      uint16_t u_dist_y_std = (static_cast<uint16_t>(data[12] & 0x03) << 12) |
-                              (static_cast<uint16_t>(data[13]) << 4) |
-                              (static_cast<uint16_t>(data[14] & 0xF0) >> 4);
-      assert(u_dist_y_std <= 16383);
-      object_msg.dist_y_std = 0.001831166 * u_dist_y_std;
-
-      uint16_t u_v_abs_x_std = (static_cast<uint16_t>(data[14] & 0x0f) << 10) |
-                               (static_cast<uint16_t>(data[15]) << 2) |
-                               (static_cast<uint16_t>(data[15] & 0x03) >> 6);
-      assert(u_v_abs_x_std <= 16383);
-      object_msg.v_abs_x_std = 0.001831166 * u_v_abs_x_std;
-
-      uint16_t u_v_abs_y_std =
-        (static_cast<uint16_t>(data[16] & 0x3f) << 8) | static_cast<uint16_t>(data[17]);
-      assert(u_v_abs_y_std <= 16383);
-      object_msg.v_abs_y_std = 0.001831166 * u_v_abs_y_std;
-
-      uint16_t u_a_abs_x_std =
-        (static_cast<uint16_t>(data[18]) << 6) | (static_cast<uint16_t>(data[19] & 0xfc) >> 2);
-      assert(u_a_abs_x_std <= 16383);
-      object_msg.a_abs_x_std = 0.001831166 * u_a_abs_x_std;
-
-      uint16_t u_a_abs_y_std = (static_cast<uint16_t>(data[19] & 0x03) << 12) |
-                               (static_cast<uint16_t>(data[20]) << 4) |
-                               (static_cast<uint16_t>(data[21] & 0xF0) >> 4);
-      assert(u_a_abs_y_std <= 16383);
-      object_msg.a_abs_y_std = 0.001831166 * u_a_abs_y_std;
-
-      uint16_t u_box_length =
-        (static_cast<uint16_t>(data[21] & 0x0f) << 8) | static_cast<uint16_t>(data[22]);
-      assert(u_box_length <= 4095);
-      object_msg.box_length = 0.007326007 * u_box_length;
-
-      uint16_t u_box_width =
-        (static_cast<uint16_t>(data[23]) << 4) | (static_cast<uint16_t>(data[24] & 0xF0) >> 4);
-      assert(u_box_width <= 4095);
-      object_msg.box_width = 0.007326007 * u_box_width;
-
-      uint16_t u_orientation =
-        (static_cast<uint16_t>(data[24] & 0x0f) << 8) | static_cast<uint16_t>(data[25]);
-      assert(u_orientation <= 4094);
-      object_msg.orientation = 0.001534729 * u_orientation - 3.14159;
-
-      uint16_t u_rcs =
-        (static_cast<uint16_t>(data[26]) << 4) | (static_cast<uint16_t>(data[27] & 0xF0) >> 4);
-      assert(u_rcs <= 4094);
-      object_msg.rcs = 0.024425989 * u_rcs - 50.f;
-
-      uint8_t u_score = data[27] & 0x0f;
-      assert(u_score <= 15);
-      object_msg.score = 6.666666667 * u_score;
-
-      object_msg.life_cycles = (static_cast<uint16_t>(data[28]) << 8) | data[29];
-      assert(object_msg.life_cycles <= 65535);
-
-      object_msg.box_valid = data[30] & 0x01;
-      object_msg.object_status = (data[30] & 0x06) >> 1;
-
-      objects_msg->objects.push_back(object_msg);
-      parsed_objects++;
-    }
-
-    object_packet_index++;
+    hrr_detection_list_ptr_->detections.push_back(detection_msg);
+    parsed_detections++;
   }
 
-  object_list_callback_(std::move(objects_msg));
-
-  return true;
+  rdi_hrr_packets_ptr_->packets.emplace_back(std::move(*packet_msg));
 }
 
-bool ContinentalSRR520Decoder::ParseStatusPacket(
-  const nebula_msgs::msg::NebulaPackets & nebula_packets)
+void ContinentalSrr520Decoder::ProcessObjectHeaderPacket(
+  std::unique_ptr<nebula_msgs::msg::NebulaPacket> packet_msg)
+{
+  object_packets_ptr_ = std::make_unique<nebula_msgs::msg::NebulaPackets>();
+  object_list_ptr_ = std::make_unique<continental_msgs::msg::ContinentalSrr520ObjectList>();
+  first_object_packet_ = false;
+
+  static_assert(sizeof(ObjectHeaderPacket) == OBJECT_HEADER_PACKET_SIZE);
+  assert(packet_msg->data.size() == OBJECT_HEADER_PACKET_SIZE + 4);
+
+  std::memcpy(
+    &object_header_packet_, packet_msg->data.data() + 4 * sizeof(uint8_t),
+    sizeof(ObjectHeaderPacket));
+
+  assert(
+    object_header_packet_.u_global_time_stamp_sync_status >= 1 &&
+    object_header_packet_.u_global_time_stamp_sync_status <= 3);
+
+  object_list_ptr_->header.frame_id = sensor_configuration_->frame_id;
+
+  if (object_header_packet_.u_global_time_stamp_sync_status == 1) {
+    object_list_ptr_->header.stamp.sec = object_header_packet_.u_global_time_stamp_sec.value();
+    object_list_ptr_->header.stamp.nanosec = object_header_packet_.u_global_time_stamp_nsec.value();
+  } else {
+    object_list_ptr_->header.stamp = packet_msg->stamp;
+  }
+
+  object_packets_ptr_->header.stamp = packet_msg->stamp;
+  object_packets_ptr_->header.frame_id = sensor_configuration_->frame_id;
+
+  object_list_ptr_->internal_time_stamp_usec = object_header_packet_.u_time_stamp.value();
+  object_list_ptr_->global_time_stamp_sync_status =
+    object_header_packet_.u_global_time_stamp_sync_status;
+  object_list_ptr_->signal_status = object_header_packet_.u_signal_status;
+  object_list_ptr_->sequence_counter = object_header_packet_.u_sequence_counter;
+  object_list_ptr_->cycle_counter = object_header_packet_.u_cycle_counter.value();
+  object_list_ptr_->ego_vx = 0.003051851 * object_header_packet_.u_ego_vx.value() - 100.f;
+  object_list_ptr_->ego_yaw_rate =
+    9.58766e-05 * object_header_packet_.u_ego_yaw_rate.value() - 3.14159;
+  object_list_ptr_->motion_type = object_header_packet_.u_motion_type;
+
+  object_list_ptr_->objects.reserve(object_header_packet_.u_number_of_objects);
+
+  object_packets_ptr_->packets.emplace_back(std::move(*packet_msg));
+}
+
+void ContinentalSrr520Decoder::ProcessObjectElementPacket(
+  std::unique_ptr<nebula_msgs::msg::NebulaPacket> packet_msg)
+{
+  if (object_packets_ptr_->packets.size() == 0) {
+    if (!first_object_packet_) {
+      PrintError("Object element before header. This can happen during the first iteration");
+    }
+    return;
+  }
+
+  if (object_list_ptr_->objects.size() >= object_header_packet_.u_number_of_objects) {
+    return;
+  }
+
+  ObjectPacket object_packet;
+  std::memcpy(&object_packet, packet_msg->data.data() + 4 * sizeof(uint8_t), sizeof(ObjectPacket));
+
+  static_assert(sizeof(ObjectPacket) == OBJECT_PACKET_SIZE);
+  assert(packet_msg->data.size() == OBJECT_PACKET_SIZE + 4);
+  assert(object_header_packet_.u_sequence_counter == object_packet.u_sequence_counter);
+  assert(object_packets_ptr_->packets.size() == object_packet.u_message_counter + 1);
+
+  for (const auto & fragment : object_packet.fragments) {
+    continental_msgs::msg::ContinentalSrr520Object object_msg;
+    const auto & data = fragment.data;
+
+    if (object_list_ptr_->objects.size() >= object_header_packet_.u_number_of_objects) {
+      break;
+    }
+
+    object_msg.object_id = data[0];
+
+    uint16_t u_dist_x = ((static_cast<uint16_t>(data[1]) << 8) | data[2]);
+    uint16_t u_dist_y = ((static_cast<uint16_t>(data[3]) << 8) | data[4]);
+    assert(u_dist_x <= 65534);
+    assert(u_dist_y <= 65534);
+    object_msg.dist_x = 0.009155553 * u_dist_x - 300.f;
+    object_msg.dist_y = 0.009155553 * u_dist_y - 300.f;
+
+    uint16_t u_v_abs_x =
+      (static_cast<uint16_t>(data[5]) << 6) | (static_cast<uint16_t>(data[6] & 0xfc) >> 2);
+    assert(u_v_abs_x <= 16382);
+    object_msg.v_abs_x = 0.009156391 * u_v_abs_x - 75.f;
+
+    uint16_t u_v_abs_y = (static_cast<uint16_t>(data[6] & 0x03) << 12) |
+                         (static_cast<uint16_t>(data[7]) << 4) |
+                         (static_cast<uint16_t>(data[8] & 0xF0) >> 4);
+    assert(u_v_abs_y <= 16382);
+    object_msg.v_abs_y = 0.009156391 * u_v_abs_y - 75.f;
+
+    uint16_t u_a_abs_x =
+      (static_cast<uint16_t>(data[8] & 0x0f) << 6) | (static_cast<uint16_t>(data[9] & 0xfc) >> 2);
+    assert(u_a_abs_x <= 1022);
+    object_msg.a_abs_x = 0.019569472 * u_a_abs_x - 10.f;
+
+    uint16_t u_a_abs_y =
+      (static_cast<uint16_t>(data[9] & 0x03) << 8) | static_cast<uint16_t>(data[10]);
+    assert(u_a_abs_y <= 1022);
+    object_msg.a_abs_y = 0.019569472 * u_a_abs_y - 10.f;
+
+    uint16_t u_dist_x_std =
+      (static_cast<uint16_t>(data[11]) << 6) | (static_cast<uint16_t>(data[12] & 0xfc) >> 2);
+    assert(u_dist_x_std <= 16383);
+    object_msg.dist_x_std = 0.001831166 * u_dist_x_std;
+
+    uint16_t u_dist_y_std = (static_cast<uint16_t>(data[12] & 0x03) << 12) |
+                            (static_cast<uint16_t>(data[13]) << 4) |
+                            (static_cast<uint16_t>(data[14] & 0xF0) >> 4);
+    assert(u_dist_y_std <= 16383);
+    object_msg.dist_y_std = 0.001831166 * u_dist_y_std;
+
+    uint16_t u_v_abs_x_std = (static_cast<uint16_t>(data[14] & 0x0f) << 10) |
+                             (static_cast<uint16_t>(data[15]) << 2) |
+                             (static_cast<uint16_t>(data[15] & 0x03) >> 6);
+    assert(u_v_abs_x_std <= 16383);
+    object_msg.v_abs_x_std = 0.001831166 * u_v_abs_x_std;
+
+    uint16_t u_v_abs_y_std =
+      (static_cast<uint16_t>(data[16] & 0x3f) << 8) | static_cast<uint16_t>(data[17]);
+    assert(u_v_abs_y_std <= 16383);
+    object_msg.v_abs_y_std = 0.001831166 * u_v_abs_y_std;
+
+    uint16_t u_a_abs_x_std =
+      (static_cast<uint16_t>(data[18]) << 6) | (static_cast<uint16_t>(data[19] & 0xfc) >> 2);
+    assert(u_a_abs_x_std <= 16383);
+    object_msg.a_abs_x_std = 0.001831166 * u_a_abs_x_std;
+
+    uint16_t u_a_abs_y_std = (static_cast<uint16_t>(data[19] & 0x03) << 12) |
+                             (static_cast<uint16_t>(data[20]) << 4) |
+                             (static_cast<uint16_t>(data[21] & 0xF0) >> 4);
+    assert(u_a_abs_y_std <= 16383);
+    object_msg.a_abs_y_std = 0.001831166 * u_a_abs_y_std;
+
+    uint16_t u_box_length =
+      (static_cast<uint16_t>(data[21] & 0x0f) << 8) | static_cast<uint16_t>(data[22]);
+    assert(u_box_length <= 4095);
+    object_msg.box_length = 0.007326007 * u_box_length;
+
+    uint16_t u_box_width =
+      (static_cast<uint16_t>(data[23]) << 4) | (static_cast<uint16_t>(data[24] & 0xF0) >> 4);
+    assert(u_box_width <= 4095);
+    object_msg.box_width = 0.007326007 * u_box_width;
+
+    uint16_t u_orientation =
+      (static_cast<uint16_t>(data[24] & 0x0f) << 8) | static_cast<uint16_t>(data[25]);
+    assert(u_orientation <= 4094);
+    object_msg.orientation = 0.001534729 * u_orientation - 3.14159;
+
+    uint16_t u_rcs =
+      (static_cast<uint16_t>(data[26]) << 4) | (static_cast<uint16_t>(data[27] & 0xF0) >> 4);
+    assert(u_rcs <= 4094);
+    object_msg.rcs = 0.024425989 * u_rcs - 50.f;
+
+    uint8_t u_score = data[27] & 0x0f;
+    assert(u_score <= 15);
+    object_msg.score = 6.666666667 * u_score;
+
+    object_msg.life_cycles = (static_cast<uint16_t>(data[28]) << 8) | data[29];
+    assert(object_msg.life_cycles <= 65535);
+
+    object_msg.box_valid = data[30] & 0x01;
+    object_msg.object_status = (data[30] & 0x06) >> 1;
+
+    object_list_ptr_->objects.push_back(object_msg);
+  }
+
+  object_packets_ptr_->packets.emplace_back(std::move(*packet_msg));
+}
+
+void ContinentalSrr520Decoder::ProcessCRCListPacket(
+  std::unique_ptr<nebula_msgs::msg::NebulaPacket> packet_msg)
+{
+  const auto crc_id = packet_msg->data[4];  // first 4 bits are the can id
+
+  if (crc_id == NEAR_CRC_ID) {
+    ProcessNearCRCListPacket(std::move(packet_msg));
+  } else if (crc_id == HRR_CRC_ID) {
+    ProcessHRRCRCListPacket(std::move(packet_msg));  // cspell: ignore HRRCRC
+  } else if (crc_id == OBJECT_CRC_ID) {
+    ProcessObjectCRCListPacket(std::move(packet_msg));
+  } else {
+    PrintError(std::string("Unrecognized CRC id=") + std::to_string(crc_id));
+  }
+}
+
+void ContinentalSrr520Decoder::ProcessNearCRCListPacket(
+  std::unique_ptr<nebula_msgs::msg::NebulaPacket> packet_msg)
+{
+  if (rdi_near_packets_ptr_->packets.size() != RDI_NEAR_PACKET_NUM + 1) {
+    if (!first_rdi_near_packet_) {
+      PrintError("Incorrect number of RDI Near elements before CRC list");
+    }
+
+    near_detection_list_ptr_.reset();
+    rdi_near_packets_ptr_.reset();
+    return;
+  }
+
+  uint16_t transmitted_crc =
+    (static_cast<uint16_t>(packet_msg->data[5]) << 8) | packet_msg->data[6];
+  uint16_t computed_crc =
+    crc16_packets(rdi_near_packets_ptr_->packets.begin(), rdi_near_packets_ptr_->packets.end(), 4);
+
+  if (transmitted_crc != computed_crc) {
+    PrintError(
+      "RDI Near: Transmitted CRC list does not coincide with the computed one. Ignoring packet");
+
+    near_detection_list_ptr_.reset();
+    rdi_near_packets_ptr_.reset();
+    return;
+  }
+
+  rdi_near_packets_ptr_->packets.emplace_back(std::move(*packet_msg));
+
+  if (near_detection_list_callback_) {
+    near_detection_list_callback_(std::move(near_detection_list_ptr_));
+  }
+
+  if (nebula_packets_callback_) {
+    nebula_packets_callback_(std::move(rdi_near_packets_ptr_));
+  }
+
+  near_detection_list_ptr_.reset();
+  rdi_near_packets_ptr_.reset();
+}
+
+void ContinentalSrr520Decoder::ProcessHRRCRCListPacket(
+  std::unique_ptr<nebula_msgs::msg::NebulaPacket> packet_msg)
+{
+  if (rdi_hrr_packets_ptr_->packets.size() != RDI_HRR_PACKET_NUM + 1) {
+    if (!first_rdi_hrr_packet_) {
+      PrintError("Incorrect number of RDI HRR elements before CRC list");
+    }
+
+    hrr_detection_list_ptr_.reset();
+    rdi_hrr_packets_ptr_.reset();
+    return;
+  }
+
+  uint16_t transmitted_crc =
+    (static_cast<uint16_t>(packet_msg->data[5]) << 8) | packet_msg->data[6];
+  uint16_t computed_crc =
+    crc16_packets(rdi_hrr_packets_ptr_->packets.begin(), rdi_hrr_packets_ptr_->packets.end(), 4);
+
+  if (transmitted_crc != computed_crc) {
+    PrintError(
+      "RDI HRR: Transmitted CRC list does not coincide with the computed one. Ignoring packet");
+    hrr_detection_list_ptr_.reset();
+    rdi_hrr_packets_ptr_.reset();
+    return;
+  }
+
+  rdi_hrr_packets_ptr_->packets.emplace_back(std::move(*packet_msg));
+
+  if (hrr_detection_list_callback_) {
+    hrr_detection_list_callback_(std::move(hrr_detection_list_ptr_));
+  }
+
+  if (nebula_packets_callback_) {
+    nebula_packets_callback_(std::move(rdi_hrr_packets_ptr_));
+  }
+
+  hrr_detection_list_ptr_.reset();
+  rdi_hrr_packets_ptr_.reset();
+}
+
+void ContinentalSrr520Decoder::ProcessObjectCRCListPacket(
+  std::unique_ptr<nebula_msgs::msg::NebulaPacket> packet_msg)
+{
+  if (object_packets_ptr_->packets.size() != OBJECT_PACKET_NUM + 1) {
+    if (!first_object_packet_) {
+      PrintError("Incorrect number of object packages before CRC list");
+    }
+
+    object_list_ptr_.reset();
+    object_packets_ptr_.reset();
+    return;
+  }
+
+  uint16_t transmitted_crc =
+    (static_cast<uint16_t>(packet_msg->data[5]) << 8) | packet_msg->data[6];
+  uint16_t computed_crc =
+    crc16_packets(object_packets_ptr_->packets.begin(), object_packets_ptr_->packets.end(), 4);
+
+  // uint8_t current_seq = buffer[3];
+
+  if (transmitted_crc != computed_crc) {
+    PrintError(
+      "Object: Transmitted CRC list does not coincide with the computed one. Ignoring packet");
+
+    object_list_ptr_.reset();
+    object_packets_ptr_.reset();
+    return;
+  }
+
+  object_packets_ptr_->packets.emplace_back(std::move(*packet_msg));
+
+  if (object_list_callback_) {
+    object_list_callback_(std::move(object_list_ptr_));
+  }
+
+  if (nebula_packets_callback_) {
+    nebula_packets_callback_(std::move(object_packets_ptr_));
+  }
+
+  object_list_ptr_.reset();
+  object_packets_ptr_.reset();
+}
+
+void ContinentalSrr520Decoder::ProcessSensorStatusPacket(
+  std::unique_ptr<nebula_msgs::msg::NebulaPacket> packet_msg)
 {
   static_assert(sizeof(StatusPacket) == STATUS_PACKET_SIZE);
 
   StatusPacket status_packet;
-  std::memcpy(&status_packet, nebula_packets.packets[1].data.data(), sizeof(status_packet));
+  std::memcpy(&status_packet, packet_msg->data.data() + 4 * sizeof(uint8_t), sizeof(status_packet));
 
   auto diagnostic_array_msg_ptr = std::make_unique<diagnostic_msgs::msg::DiagnosticArray>();
 
-  diagnostic_array_msg_ptr->header = nebula_packets.header;
+  diagnostic_array_msg_ptr->header.frame_id = sensor_configuration_->frame_id;
+  diagnostic_array_msg_ptr->header.stamp = packet_msg->stamp;
   diagnostic_array_msg_ptr->status.resize(1);
 
   auto & diagnostic_status = diagnostic_array_msg_ptr->status.front();
@@ -696,8 +1048,7 @@ bool ContinentalSRR520Decoder::ParseStatusPacket(
     std::to_string(9.58766e-05 * status_packet.u_aln_current_delta.value() - 3.14159);
   diagnostic_values.push_back(key_value);
 
-  uint16_t computed_crc =
-    crc16_packet(nebula_packets.packets[1].data.begin(), nebula_packets.packets[1].data.end() - 3);
+  uint16_t computed_crc = crc16_packet(packet_msg->data.begin() + 4, packet_msg->data.end() - 3);
   key_value.key = "crc_check";
   key_value.value =
     std::to_string(status_packet.u_crc.value()) + "|" + std::to_string(computed_crc);
@@ -707,9 +1058,74 @@ bool ContinentalSRR520Decoder::ParseStatusPacket(
   key_value.value = std::to_string(status_packet.u_sequence_counter);
   diagnostic_values.push_back(key_value);
 
-  status_callback_(std::move(diagnostic_array_msg_ptr));
+  if (status_callback_) {
+    status_callback_(std::move(diagnostic_array_msg_ptr));
+  }
 
+  auto nebula_packets = std::make_unique<nebula_msgs::msg::NebulaPackets>();
+  nebula_packets->header.stamp = packet_msg->stamp;
+  nebula_packets->header.frame_id = sensor_configuration_->frame_id;
+  nebula_packets->packets.emplace_back(std::move(*packet_msg));
+
+  if (nebula_packets_callback_) {
+    nebula_packets_callback_(std::move(nebula_packets));
+  }
+}
+
+void ContinentalSrr520Decoder::ProcessSyncFupPacket(
+  std::unique_ptr<nebula_msgs::msg::NebulaPacket> packet_msg)
+{
+  if (sync_fup_callback_) {
+    sync_fup_callback_();
+  }
+
+  auto nebula_packets = std::make_unique<nebula_msgs::msg::NebulaPackets>();
+  nebula_packets->header.stamp = packet_msg->stamp;
+  nebula_packets->header.frame_id = sensor_configuration_->frame_id;
+  nebula_packets->packets.emplace_back(std::move(*packet_msg));
+
+  if (nebula_packets_callback_) {
+    nebula_packets_callback_(std::move(nebula_packets));
+  }
+}
+
+bool ContinentalSrr520Decoder::ParseStatusPacket(
+  const nebula_msgs::msg::NebulaPackets & nebula_packets)
+{
+  assert(false);
   return true;
+}
+
+void ContinentalSrr520Decoder::SetLogger(std::shared_ptr<rclcpp::Logger> logger)
+{
+  parent_node_logger = logger;
+}
+
+void ContinentalSrr520Decoder::PrintInfo(std::string info)
+{
+  if (parent_node_logger) {
+    RCLCPP_INFO_STREAM((*parent_node_logger), info);
+  } else {
+    std::cout << info << std::endl;
+  }
+}
+
+void ContinentalSrr520Decoder::PrintError(std::string error)
+{
+  if (parent_node_logger) {
+    RCLCPP_ERROR_STREAM((*parent_node_logger), error);
+  } else {
+    std::cerr << error << std::endl;
+  }
+}
+
+void ContinentalSrr520Decoder::PrintDebug(std::string debug)
+{
+  if (parent_node_logger) {
+    RCLCPP_DEBUG_STREAM((*parent_node_logger), debug);
+  } else {
+    std::cout << debug << std::endl;
+  }
 }
 
 }  // namespace continental_srr520

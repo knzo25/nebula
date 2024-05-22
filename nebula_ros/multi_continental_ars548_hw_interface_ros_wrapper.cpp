@@ -24,7 +24,7 @@ namespace nebula
 {
 namespace ros
 {
-MultiContinentalARS548HwInterfaceRosWrapper::MultiContinentalARS548HwInterfaceRosWrapper(
+MultiContinentalArs548HwInterfaceRosWrapper::MultiContinentalArs548HwInterfaceRosWrapper(
   const rclcpp::NodeOptions & options)
 : rclcpp::Node("multi_continental_ars548_hw_interface_ros_wrapper", options), hw_interface_()
 {
@@ -37,16 +37,16 @@ MultiContinentalARS548HwInterfaceRosWrapper::MultiContinentalARS548HwInterfaceRo
     return;
   }
   hw_interface_.SetLogger(std::make_shared<rclcpp::Logger>(this->get_logger()));
-  std::shared_ptr<drivers::continental_ars548::MultiContinentalARS548SensorConfiguration>
+  std::shared_ptr<drivers::continental_ars548::MultiContinentalArs548SensorConfiguration>
     sensor_cfg_ptr =
-      std::make_shared<drivers::continental_ars548::MultiContinentalARS548SensorConfiguration>(
+      std::make_shared<drivers::continental_ars548::MultiContinentalArs548SensorConfiguration>(
         sensor_configuration_);
   hw_interface_.SetSensorConfiguration(
     std::static_pointer_cast<drivers::SensorConfigurationBase>(sensor_cfg_ptr));
 
   assert(sensor_configuration_.sensor_ips.size() == sensor_configuration_.frame_ids.size());
   hw_interface_.RegisterScanCallback(std::bind(
-    &MultiContinentalARS548HwInterfaceRosWrapper::ReceivePacketsDataCallback, this,
+    &MultiContinentalArs548HwInterfaceRosWrapper::ReceivePacketsDataCallback, this,
     std::placeholders::_1, std::placeholders::_2));
 
   for (std::size_t sensor_id = 0; sensor_id < sensor_configuration_.sensor_ips.size();
@@ -58,16 +58,16 @@ MultiContinentalARS548HwInterfaceRosWrapper::MultiContinentalARS548HwInterfaceRo
   }
 
   set_param_res_ = this->add_on_set_parameters_callback(std::bind(
-    &MultiContinentalARS548HwInterfaceRosWrapper::paramCallback, this, std::placeholders::_1));
+    &MultiContinentalArs548HwInterfaceRosWrapper::paramCallback, this, std::placeholders::_1));
 
   StreamStart();
 }
 
-MultiContinentalARS548HwInterfaceRosWrapper::~MultiContinentalARS548HwInterfaceRosWrapper()
+MultiContinentalArs548HwInterfaceRosWrapper::~MultiContinentalArs548HwInterfaceRosWrapper()
 {
 }
 
-Status MultiContinentalARS548HwInterfaceRosWrapper::StreamStart()
+Status MultiContinentalArs548HwInterfaceRosWrapper::StreamStart()
 {
   if (Status::OK == interface_status_) {
     interface_status_ = hw_interface_.SensorInterfaceStart();
@@ -77,35 +77,35 @@ Status MultiContinentalARS548HwInterfaceRosWrapper::StreamStart()
     odometry_sub_ = this->create_subscription<geometry_msgs::msg::TwistWithCovarianceStamped>(
       "odometry_input", rclcpp::QoS{1},
       std::bind(
-        &MultiContinentalARS548HwInterfaceRosWrapper::OdometryCallback, this,
+        &MultiContinentalArs548HwInterfaceRosWrapper::OdometryCallback, this,
         std::placeholders::_1));
 
     acceleration_sub_ = create_subscription<geometry_msgs::msg::AccelWithCovarianceStamped>(
       "acceleration_input", rclcpp::QoS{1},
       std::bind(
-        &MultiContinentalARS548HwInterfaceRosWrapper::AccelerationCallback, this,
+        &MultiContinentalArs548HwInterfaceRosWrapper::AccelerationCallback, this,
         std::placeholders::_1));
 
     steering_angle_sub_ = create_subscription<std_msgs::msg::Float32>(
       "steering_angle_input", rclcpp::QoS{1},
       std::bind(
-        &MultiContinentalARS548HwInterfaceRosWrapper::SteeringAngleCallback, this,
+        &MultiContinentalArs548HwInterfaceRosWrapper::SteeringAngleCallback, this,
         std::placeholders::_1));
   }
 
   return interface_status_;
 }
 
-Status MultiContinentalARS548HwInterfaceRosWrapper::StreamStop()
+Status MultiContinentalArs548HwInterfaceRosWrapper::StreamStop()
 {
   return Status::OK;
 }
-Status MultiContinentalARS548HwInterfaceRosWrapper::Shutdown()
+Status MultiContinentalArs548HwInterfaceRosWrapper::Shutdown()
 {
   return Status::OK;
 }
 
-Status MultiContinentalARS548HwInterfaceRosWrapper::InitializeHwInterface(  // todo: don't think
+Status MultiContinentalArs548HwInterfaceRosWrapper::InitializeHwInterface(  // todo: don't think
                                                                             // this is needed
   const drivers::SensorConfigurationBase & sensor_configuration)
 {
@@ -115,8 +115,8 @@ Status MultiContinentalARS548HwInterfaceRosWrapper::InitializeHwInterface(  // t
   return Status::OK;
 }
 
-Status MultiContinentalARS548HwInterfaceRosWrapper::GetParameters(
-  drivers::continental_ars548::MultiContinentalARS548SensorConfiguration & sensor_configuration)
+Status MultiContinentalArs548HwInterfaceRosWrapper::GetParameters(
+  drivers::continental_ars548::MultiContinentalArs548SensorConfiguration & sensor_configuration)
 {
   {
     rcl_interfaces::msg::ParameterDescriptor descriptor;
@@ -229,13 +229,13 @@ Status MultiContinentalARS548HwInterfaceRosWrapper::GetParameters(
   return Status::OK;
 }
 
-void MultiContinentalARS548HwInterfaceRosWrapper::ReceivePacketsDataCallback(
+void MultiContinentalArs548HwInterfaceRosWrapper::ReceivePacketsDataCallback(
   std::unique_ptr<nebula_msgs::msg::NebulaPackets> scan_buffer, const std::string & sensor_ip)
 {
   packets_pub_map_[sensor_ip]->publish(std::move(scan_buffer));
 }
 
-rcl_interfaces::msg::SetParametersResult MultiContinentalARS548HwInterfaceRosWrapper::paramCallback(
+rcl_interfaces::msg::SetParametersResult MultiContinentalArs548HwInterfaceRosWrapper::paramCallback(
   const std::vector<rclcpp::Parameter> & p)
 {
   std::scoped_lock lock(mtx_config_);
@@ -244,7 +244,7 @@ rcl_interfaces::msg::SetParametersResult MultiContinentalARS548HwInterfaceRosWra
   RCLCPP_DEBUG_STREAM(this->get_logger(), sensor_configuration_);
   RCLCPP_INFO_STREAM(this->get_logger(), p);
 
-  drivers::continental_ars548::MultiContinentalARS548SensorConfiguration new_param{
+  drivers::continental_ars548::MultiContinentalArs548SensorConfiguration new_param{
     sensor_configuration_};
   RCLCPP_INFO_STREAM(this->get_logger(), new_param);
   std::string sensor_model_str;
@@ -267,7 +267,7 @@ rcl_interfaces::msg::SetParametersResult MultiContinentalARS548HwInterfaceRosWra
     sensor_configuration_ = new_param;
     RCLCPP_INFO_STREAM(this->get_logger(), "Update sensor_configuration");
     std::shared_ptr<drivers::SensorConfigurationBase> sensor_cfg_ptr =
-      std::make_shared<drivers::continental_ars548::ContinentalARS548SensorConfiguration>(
+      std::make_shared<drivers::continental_ars548::ContinentalArs548SensorConfiguration>(
         sensor_configuration_);
     RCLCPP_DEBUG_STREAM(this->get_logger(), "hw_interface_.SetSensorConfiguration");
     hw_interface_.SetSensorConfiguration(
@@ -284,7 +284,7 @@ rcl_interfaces::msg::SetParametersResult MultiContinentalARS548HwInterfaceRosWra
   return *result;
 }
 
-void MultiContinentalARS548HwInterfaceRosWrapper::OdometryCallback(
+void MultiContinentalArs548HwInterfaceRosWrapper::OdometryCallback(
   const geometry_msgs::msg::TwistWithCovarianceStamped::SharedPtr msg)
 {
   std::scoped_lock lock(mtx_config_);
@@ -311,7 +311,7 @@ void MultiContinentalARS548HwInterfaceRosWrapper::OdometryCallback(
   hw_interface_.SetYawRate(rad_to_deg * msg->twist.twist.angular.z);
 }
 
-void MultiContinentalARS548HwInterfaceRosWrapper::AccelerationCallback(
+void MultiContinentalArs548HwInterfaceRosWrapper::AccelerationCallback(
   const geometry_msgs::msg::AccelWithCovarianceStamped::SharedPtr msg)
 {
   std::scoped_lock lock(mtx_config_);
@@ -319,7 +319,7 @@ void MultiContinentalARS548HwInterfaceRosWrapper::AccelerationCallback(
   hw_interface_.SetAccelerationLongitudinalCog(msg->accel.accel.linear.x);
 }
 
-void MultiContinentalARS548HwInterfaceRosWrapper::SteeringAngleCallback(
+void MultiContinentalArs548HwInterfaceRosWrapper::SteeringAngleCallback(
   const std_msgs::msg::Float32::SharedPtr msg)
 {
   std::scoped_lock lock(mtx_config_);
@@ -328,7 +328,7 @@ void MultiContinentalARS548HwInterfaceRosWrapper::SteeringAngleCallback(
 }
 
 std::vector<rcl_interfaces::msg::SetParametersResult>
-MultiContinentalARS548HwInterfaceRosWrapper::updateParameters()
+MultiContinentalArs548HwInterfaceRosWrapper::updateParameters()
 {
   std::scoped_lock lock(mtx_config_);
   RCLCPP_DEBUG_STREAM(this->get_logger(), "updateParameters start");
@@ -351,6 +351,6 @@ MultiContinentalARS548HwInterfaceRosWrapper::updateParameters()
   return results;
 }
 
-RCLCPP_COMPONENTS_REGISTER_NODE(MultiContinentalARS548HwInterfaceRosWrapper)
+RCLCPP_COMPONENTS_REGISTER_NODE(MultiContinentalArs548HwInterfaceRosWrapper)
 }  // namespace ros
 }  // namespace nebula
