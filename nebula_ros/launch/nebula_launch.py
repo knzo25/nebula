@@ -32,6 +32,7 @@ def get_plugin_name(sensor_make, sensor_model):
     else:
         return sensor_make + sensor_model
 
+
 def is_hw_monitor_available(sensor_make):
     return sensor_make.lower() != "continental"
 
@@ -39,8 +40,11 @@ def launch_setup(context, *args, **kwargs):
     # Model and make
     sensor_model = LaunchConfiguration("sensor_model").perform(context)
     calibration_file = LaunchConfiguration("calibration_file").perform(context)
-    correction_file = LaunchConfiguration("correction_file").perform(context)
     sensor_make, sensor_extension = get_sensor_make(sensor_model)
+
+    if sensor_make.lower() == "hesai":
+        raise ValueError("\n  `nebula_launch.py` is deprecated. For Hesai sensors, use `hesai_launch_all_hw.xml` instead.")
+
     nebula_decoders_share_dir = get_package_share_directory("nebula_decoders")
     nebula_ros_share_dir = get_package_share_directory("nebula_ros")
 
@@ -54,11 +58,14 @@ def launch_setup(context, *args, **kwargs):
         sensor_params_fp = os.path.join(nebula_ros_share_dir, "config", "BaseParams.yaml")
     assert os.path.exists(sensor_params_fp), "Sensor params yaml file under config/ was not found: {}".format(sensor_params_fp)
 
+    sensor_calib_fp = sensor_corr_fp = ""
     if sensor_extension is not None:  # Velodyne and Hesai
         sensor_calib_fp = os.path.join(nebula_decoders_share_dir, "calibration", sensor_make.lower(), sensor_model + sensor_extension)
         assert os.path.exists(sensor_calib_fp), "Sensor calib file under calibration/ was not found: {}".format(sensor_calib_fp)
-    else:  # Robosense
-        sensor_calib_fp = ""
+
+        if sensor_model.lower() == "pandarat128":
+            sensor_corr_fp = os.path.splitext(sensor_calib_fp)[0] + ".dat"
+            assert os.path.exists(sensor_corr_fp), "Sensor corr file under calibration/ was not found: {}".format(sensor_corr_fp)
 
     with open(sensor_params_fp, "r") as f:
             sensor_params = yaml.safe_load(f)["/**"]["ros__parameters"]
@@ -79,7 +86,6 @@ def launch_setup(context, *args, **kwargs):
                         "sensor_ip": LaunchConfiguration("sensor_ip"),
                         "return_mode": LaunchConfiguration("return_mode"),
                         "calibration_file": calibration_file or sensor_calib_fp,
-                        "correction_file": correction_file or sensor_calib_fp,
                         "setup_sensor": LaunchConfiguration("setup_sensor"),
                         "ptp_profile": LaunchConfiguration("ptp_profile"),
                         "ptp_domain": LaunchConfiguration("ptp_domain"),
@@ -105,7 +111,6 @@ def launch_setup(context, *args, **kwargs):
                         "sensor_ip": LaunchConfiguration("sensor_ip"),
                         "return_mode": LaunchConfiguration("return_mode"),
                         "calibration_file": calibration_file or sensor_calib_fp,
-                        "correction_file": correction_file or sensor_calib_fp,
                     },
                 ],
             )

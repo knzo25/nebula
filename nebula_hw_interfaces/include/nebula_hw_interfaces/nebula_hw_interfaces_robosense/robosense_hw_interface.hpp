@@ -70,7 +70,7 @@ public:
 
   /// @brief Callback function to receive the Cloud Packet data from the UDP Driver
   /// @param buffer Buffer containing the data received from the UDP socket
-  void ReceiveSensorPacketCallback(const std::vector<uint8_t> & buffer) final;
+  void ReceiveSensorPacketCallback(const std::vector<uint8_t> & buffer);
 
   /// @brief Callback function to receive the Info Packet data from the UDP Driver
   /// @param buffer Buffer containing the data received from the UDP socket

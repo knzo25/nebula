@@ -347,7 +347,7 @@ enum class PtpProfile {
   IEEE_1588v2 = 0,
   IEEE_802_1AS,
   IEEE_802_1AS_AUTO,
-  PROFILE_UNKNOWN
+  UNKNOWN_PROFILE
 };
 
 enum class PtpTransportType {
@@ -656,7 +656,7 @@ inline PtpProfile PtpProfileFromString(const std::string & ptp_profile)
   if (tmp_str == "802.1as") return PtpProfile::IEEE_802_1AS;
   if (tmp_str == "automotive") return PtpProfile::IEEE_802_1AS_AUTO;
 
-  return PtpProfile::PROFILE_UNKNOWN;
+  return PtpProfile::UNKNOWN_PROFILE;
 }
 
 /// @brief Convert PtpProfile enum to string (Overloading the << operator)
@@ -675,7 +675,7 @@ inline std::ostream & operator<<(std::ostream & os, nebula::drivers::PtpProfile 
     case PtpProfile::IEEE_802_1AS_AUTO:
       os << "IEEE_802.1AS Automotive";
       break;
-    case PtpProfile::PROFILE_UNKNOWN:
+    case PtpProfile::UNKNOWN_PROFILE:
       os << "UNKNOWN";
       break;
   }

@@ -1,5 +1,5 @@
-#ifndef NEBULA_VelodyneDriverRosWrapper_H
-#define NEBULA_VelodyneDriverRosWrapper_H
+#ifndef NEBULA_VelodyneRosDecoderTestVlp16_H
+#define NEBULA_VelodyneRosDecoderTestVlp16_H
 
 #include "nebula_common/nebula_common.hpp"
 #include "nebula_common/nebula_status.hpp"
@@ -7,7 +7,6 @@
 #include "nebula_decoders/nebula_decoders_velodyne/velodyne_driver.hpp"
 #include "nebula_ros/common/nebula_driver_ros_wrapper_base.hpp"
 
-#include <ament_index_cpp/get_package_prefix.hpp>
 #include <diagnostic_updater/diagnostic_updater.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <rclcpp_components/register_node_macro.hpp>
@@ -15,32 +14,31 @@
 #include <velodyne_msgs/msg/velodyne_packet.hpp>
 #include <velodyne_msgs/msg/velodyne_scan.hpp>
 
+#include <gtest/gtest.h>
+
 namespace nebula
 {
 namespace ros
 {
-/// @brief Ros wrapper of velodyne driver
-class VelodyneDriverRosWrapper final : public rclcpp::Node, NebulaDriverRosWrapperBase
+/// @brief Testing decoder of VLP16 (Keeps VelodyneDriverRosWrapper structure as much as possible)
+class VelodyneRosDecoderTest final : public rclcpp::Node
 {
   std::shared_ptr<drivers::VelodyneDriver> driver_ptr_;
   Status wrapper_status_;
-  rclcpp::Subscription<velodyne_msgs::msg::VelodyneScan>::SharedPtr velodyne_scan_sub_;
-  rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr nebula_points_pub_;
-  rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr aw_points_ex_pub_;
-  rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr aw_points_base_pub_;
 
-  std::shared_ptr<drivers::CalibrationConfigurationBase> calibration_cfg_ptr_;
-  std::shared_ptr<drivers::SensorConfigurationBase> sensor_cfg_ptr_;
+  std::shared_ptr<const drivers::VelodyneCalibrationConfiguration> calibration_cfg_ptr_;
+  std::shared_ptr<const drivers::VelodyneSensorConfiguration> sensor_cfg_ptr_;
 
   /// @brief Initializing ros wrapper
   /// @param sensor_configuration SensorConfiguration for this driver
   /// @param calibration_configuration CalibrationConfiguration for this driver
   /// @return Resulting status
   Status InitializeDriver(
-    std::shared_ptr<drivers::SensorConfigurationBase> sensor_configuration,
-    std::shared_ptr<drivers::CalibrationConfigurationBase> calibration_configuration) override;
+    std::shared_ptr<const drivers::VelodyneSensorConfiguration> sensor_configuration,
+    std::shared_ptr<const drivers::VelodyneCalibrationConfiguration> calibration_configuration);
 
-  /// @brief Get configurations from ros parameters
+  /// @brief Get configurations (Magic numbers for VLP16 is described, each function can be
+  /// integrated if the ros parameter can be passed to Google Test)
   /// @param sensor_configuration Output of SensorConfiguration
   /// @param calibration_configuration Output of CalibrationConfiguration
   /// @return Resulting status
@@ -57,27 +55,36 @@ class VelodyneDriverRosWrapper final : public rclcpp::Node, NebulaDriverRosWrapp
       std::chrono::duration<double>(seconds));
   }
 
-  /***
-   * Publishes a sensor_msgs::msg::PointCloud2 to the specified publisher
-   * @param pointcloud unique pointer containing the point cloud to publish
-   * @param publisher
-   */
-  void PublishCloud(
-    std::unique_ptr<sensor_msgs::msg::PointCloud2> pointcloud,
-    const rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr & publisher);
-
 public:
-  explicit VelodyneDriverRosWrapper(const rclcpp::NodeOptions & options);
+  explicit VelodyneRosDecoderTest(
+    const rclcpp::NodeOptions & options, const std::string & node_name);
 
-  /// @brief Callback for VelodyneScan subscriber
-  /// @param scan_msg Received VelodyneScan
-  void ReceiveScanMsgCallback(const velodyne_msgs::msg::VelodyneScan::SharedPtr scan_msg);
   /// @brief Get current status of this driver
   /// @return Current status
   Status GetStatus();
+
+  /// @brief Read the specified bag file and compare the constructed point clouds with the
+  /// corresponding PCD files
+  void ReadBag();
+  /*
+  void SetUp() override {
+    // Setup things that should occur before every test instance should go here
+    RCLCPP_ERROR_STREAM(this->get_logger(), "DONE WITH SETUP!!");
+  }
+
+  void TearDown() override {
+    std::cout << "DONE WITH TEARDOWN" << std::endl;
+  }
+*/
+private:
+  std::string bag_path;
+  std::string storage_id;
+  std::string format;
+  std::string target_topic;
+  std::string correction_file_path;
 };
 
 }  // namespace ros
 }  // namespace nebula
 
-#endif  // NEBULA_VelodyneDriverRosWrapper_H
+#endif  // NEBULA_VelodyneRosDecoderTestVlp16_H
