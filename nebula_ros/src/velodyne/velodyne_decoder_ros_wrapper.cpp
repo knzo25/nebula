@@ -29,15 +29,28 @@ VelodyneDriverRosWrapper::VelodyneDriverRosWrapper(const rclcpp::NodeOptions & o
 
   RCLCPP_DEBUG_STREAM(this->get_logger(), this->get_name() << "Wrapper=" << wrapper_status_);
 
+  rclcpp::PublisherOptions pub_options;
+  pub_options.use_intra_process_comm = rclcpp::IntraProcessSetting::Enable;
+
+  rclcpp::SubscriptionOptions sub_options;
+  sub_options.use_intra_process_comm = rclcpp::IntraProcessSetting::Enable;
+
   velodyne_scan_sub_ = create_subscription<velodyne_msgs::msg::VelodyneScan>(
     "velodyne_packets", rclcpp::SensorDataQoS(),
-    std::bind(&VelodyneDriverRosWrapper::ReceiveScanMsgCallback, this, std::placeholders::_1));
+    std::bind(&VelodyneDriverRosWrapper::ReceiveScanMsgCallback, this, std::placeholders::_1),
+    sub_options);
   nebula_points_pub_ = this->create_publisher<sensor_msgs::msg::PointCloud2>(
-    "velodyne_points", rclcpp::SensorDataQoS());
-  aw_points_base_pub_ =
-    this->create_publisher<sensor_msgs::msg::PointCloud2>("aw_points", rclcpp::SensorDataQoS());
-  aw_points_ex_pub_ =
-    this->create_publisher<sensor_msgs::msg::PointCloud2>("aw_points_ex", rclcpp::SensorDataQoS());
+    "velodyne_points", rclcpp::SensorDataQoS(), pub_options);
+  aw_points_base_pub_ = this->create_publisher<sensor_msgs::msg::PointCloud2>(
+    "aw_points", rclcpp::SensorDataQoS(), pub_options);
+  aw_points_ex_pub_ = this->create_publisher<sensor_msgs::msg::PointCloud2>(
+    "aw_points_ex", rclcpp::SensorDataQoS(), pub_options);
+
+#ifdef CUDA_AVAILABLE
+  cuda_points_pub_ =
+    std::make_unique<cuda_blackboard::CudaBlackboardPublisher<cuda_blackboard::CudaPointCloud2>>(
+      *this, "cuda_points");
+#endif
 }
 
 void VelodyneDriverRosWrapper::ReceiveScanMsgCallback(
@@ -52,7 +65,7 @@ void VelodyneDriverRosWrapper::ReceiveScanMsgCallback(
   if (pointcloud == nullptr) {
     RCLCPP_WARN_STREAM(get_logger(), "Empty cloud parsed.");
     return;
-  };
+  }
   if (
     nebula_points_pub_->get_subscription_count() > 0 ||
     nebula_points_pub_->get_intra_process_subscription_count() > 0) {
@@ -85,8 +98,44 @@ void VelodyneDriverRosWrapper::ReceiveScanMsgCallback(
     PublishCloud(std::move(ros_pc_msg_ptr), aw_points_ex_pub_);
   }
 
+#ifdef CUDA_AVAILABLE
+
+  if (
+    cuda_points_pub_->get_subscription_count() > 0 ||
+    cuda_points_pub_->get_intra_process_subscription_count() > 0) {
+    sensor_msgs::msg::PointCloud2 msg_aux;
+    pcl::toROSMsg(pcl::PointCloud<nebula::drivers::PointXYZIRCAEDT>(), msg_aux);
+
+    auto cuda_points_ptr = std::make_unique<cuda_blackboard::CudaPointCloud2>();
+    cuda_points_ptr->fields = msg_aux.fields;
+    cuda_points_ptr->height = pointcloud->height;
+    cuda_points_ptr->width = pointcloud->width;
+    cuda_points_ptr->row_step = pointcloud->width * sizeof(nebula::drivers::PointXYZIRCAEDT);
+    cuda_points_ptr->point_step = sizeof(nebula::drivers::PointXYZIRCAEDT);
+    cuda_points_ptr->is_dense = pointcloud->is_dense;
+    cuda_points_ptr->is_bigendian = false;
+    cuda_points_ptr->header.frame_id = sensor_cfg_ptr_->frame_id;
+    cuda_points_ptr->header.stamp =
+      rclcpp::Time(SecondsToChronoNanoSeconds(std::get<1>(pointcloud_ts)).count());
+
+    cudaMalloc(
+      reinterpret_cast<void **>(&cuda_points_ptr->data),
+      cuda_points_ptr->height * cuda_points_ptr->width * cuda_points_ptr->point_step *
+        sizeof(uint8_t));
+    cudaMemcpy(
+      cuda_points_ptr->data, pointcloud->data(),
+      cuda_points_ptr->height * cuda_points_ptr->width * cuda_points_ptr->point_step *
+        sizeof(uint8_t),
+      cudaMemcpyHostToDevice);
+
+    cuda_points_pub_->publish(std::move(cuda_points_ptr));
+  }
+
+#endif
+
   auto runtime = std::chrono::high_resolution_clock::now() - t_start;
-  RCLCPP_DEBUG(get_logger(), "PROFILING {'d_total': %lu, 'n_out': %lu}", runtime.count(), pointcloud->size());
+  RCLCPP_DEBUG(
+    get_logger(), "PROFILING {'d_total': %lu, 'n_out': %lu}", runtime.count(), pointcloud->size());
 }
 
 void VelodyneDriverRosWrapper::PublishCloud(
@@ -111,7 +160,10 @@ Status VelodyneDriverRosWrapper::InitializeDriver(
   return driver_ptr_->GetStatus();
 }
 
-Status VelodyneDriverRosWrapper::GetStatus() { return wrapper_status_; }
+Status VelodyneDriverRosWrapper::GetStatus()
+{
+  return wrapper_status_;
+}
 
 Status VelodyneDriverRosWrapper::GetParameters(
   drivers::VelodyneSensorConfiguration & sensor_configuration,

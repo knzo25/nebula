@@ -1,9 +1,9 @@
 #include "nebula_decoders/nebula_decoders_velodyne/decoders/vls128_decoder.hpp"
 
+#include <angles/angles.h>
+
 #include <cmath>
 #include <utility>
-
-#include <angles/angles.h> 
 
 namespace nebula
 {
@@ -20,8 +20,11 @@ Vls128Decoder::Vls128Decoder(
 
   scan_timestamp_ = -1;
 
+  std::fill(scan_pc_next_indexes_.begin(), scan_pc_next_indexes_.end(), 0);
+
   scan_pc_.reset(new NebulaPointCloud);
   overflow_pc_.reset(new NebulaPointCloud);
+  scan_pc_->points.resize(128 * 2048);
 
   // Set up cached values for sin and cos of all the possible headings
   for (uint16_t rot_index = 0; rot_index < ROTATION_MAX_UNITS; ++rot_index) {
@@ -65,7 +68,8 @@ std::tuple<drivers::NebulaPointCloudPtr, double> Vls128Decoder::get_pointcloud()
 {
   double phase = angles::from_degrees(sensor_configuration_->scan_phase);
   if (!scan_pc_->points.empty()) {
-    auto current_azimuth = scan_pc_->points.back().azimuth;
+    // Not doing anything with the overflow points for now
+    /* auto current_azimuth = scan_pc_->points.back().azimuth;
     auto phase_diff =
       static_cast<size_t>(angles::to_degrees(2 * M_PI + current_azimuth - phase)) % 360;
     while (phase_diff < M_PI_2 && !scan_pc_->points.empty()) {
@@ -74,10 +78,11 @@ std::tuple<drivers::NebulaPointCloudPtr, double> Vls128Decoder::get_pointcloud()
       current_azimuth = scan_pc_->points.back().azimuth;
       phase_diff =
         static_cast<size_t>(angles::to_degrees(2 * M_PI + current_azimuth - phase)) % 360;
-    }
-    overflow_pc_->width = overflow_pc_->points.size();
-    scan_pc_->width = scan_pc_->points.size();
-    scan_pc_->height = 1;
+    } */
+
+    overflow_pc_->width = 2048;
+    scan_pc_->width = 2048;
+    scan_pc_->height = 128;
   }
   return std::make_tuple(scan_pc_, scan_timestamp_);
 }
@@ -89,15 +94,20 @@ int Vls128Decoder::pointsPerPacket()
 
 void Vls128Decoder::reset_pointcloud(size_t n_pts, double time_stamp)
 {
+  std::fill(scan_pc_next_indexes_.begin(), scan_pc_next_indexes_.end(), 0);
   //  scan_pc_.reset(new NebulaPointCloud);
   scan_pc_->points.clear();
-  max_pts_ = n_pts * pointsPerPacket();
-  scan_pc_->points.reserve(max_pts_);
+  // max_pts_ = n_pts * pointsPerPacket();
+  scan_pc_->points.resize(128 * 2048);
+  std::fill(scan_pc_->points.begin(), scan_pc_->points.end(), nebula::drivers::NebulaPoint{});
   reset_overflow(time_stamp);  // transfer existing overflow points to the cleared pointcloud
 }
 
 void Vls128Decoder::reset_overflow(double time_stamp)
 {
+  scan_timestamp_ = -1;
+  return;
+
   if (overflow_pc_->points.size() == 0) {
     scan_timestamp_ = -1;
     overflow_pc_->points.reserve(max_pts_);
@@ -146,6 +156,8 @@ void Vls128Decoder::unpack(const velodyne_msgs::msg::VelodynePacket & velodyne_p
   uint16_t azimuth_next;
   const uint8_t return_mode = velodyne_packet.data[RETURN_MODE_INDEX];
   const bool dual_return = (return_mode == RETURN_MODE_DUAL);
+
+  bool publish_azimuth = true;
 
   for (uint block = 0; block < static_cast<uint>(BLOCKS_PER_PACKET - (4 * dual_return)); block++) {
     // Cache block for use.
@@ -331,6 +343,15 @@ void Vls128Decoder::unpack(const velodyne_msgs::msg::VelodynePacket & velodyne_p
               current_point.x = x_coord;
               current_point.y = y_coord;
               current_point.z = z_coord;
+
+              if (publish_azimuth) {
+                double real_azimuth = (180.0 / M_PI) * std::atan2(y_coord, x_coord);
+                // std::cout << "DECODER. azimuth=" << std::fixed << azimuth << "
+                // azimuth_corrected=" << azimuth_corrected << "real azimuth = " << real_azimuth <<
+                // std::endl << std::flush;
+                publish_azimuth = false;
+              }
+
               current_point.return_type = return_type;
               current_point.channel = corrections.laser_ring;
               current_point.azimuth = rotation_radians_[azimuth_corrected];
@@ -340,7 +361,11 @@ void Vls128Decoder::unpack(const velodyne_msgs::msg::VelodynePacket & velodyne_p
               if (point_ts < 0) point_ts = 0;
               current_point.time_stamp = static_cast<uint32_t>(point_ts * 1e9);
               current_point.intensity = intensity;
-              scan_pc_->points.emplace_back(current_point);
+
+              int next_index = scan_pc_next_indexes_[corrections.laser_ring]++;
+
+              assert(next_index < 2048);
+              scan_pc_->points[corrections.laser_ring * 2048 + next_index] = current_point;
             }  // 2nd scan area condition
           }    // distance condition
         }      // empty "else"

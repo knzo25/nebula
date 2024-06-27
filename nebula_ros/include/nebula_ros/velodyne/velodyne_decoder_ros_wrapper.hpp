@@ -12,6 +12,12 @@
 #include <rclcpp/rclcpp.hpp>
 #include <rclcpp_components/register_node_macro.hpp>
 
+#ifdef CUDA_AVAILABLE
+#include <cuda_blackboard/cuda_adaptation.hpp>
+#include <cuda_blackboard/cuda_blackboard_publisher.hpp>
+#include <cuda_blackboard/cuda_image.hpp>
+#endif
+
 #include <velodyne_msgs/msg/velodyne_packet.hpp>
 #include <velodyne_msgs/msg/velodyne_scan.hpp>
 
@@ -28,6 +34,11 @@ class VelodyneDriverRosWrapper final : public rclcpp::Node, NebulaDriverRosWrapp
   rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr nebula_points_pub_;
   rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr aw_points_ex_pub_;
   rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr aw_points_base_pub_;
+
+#ifdef CUDA_AVAILABLE
+  std::unique_ptr<cuda_blackboard::CudaBlackboardPublisher<cuda_blackboard::CudaPointCloud2>>
+    cuda_points_pub_;
+#endif
 
   std::shared_ptr<drivers::CalibrationConfigurationBase> calibration_cfg_ptr_;
   std::shared_ptr<drivers::SensorConfigurationBase> sensor_cfg_ptr_;

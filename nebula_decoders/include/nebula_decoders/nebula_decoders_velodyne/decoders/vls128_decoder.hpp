@@ -54,6 +54,9 @@ private:
   int max_pts_;
   double last_block_timestamp_;
   std::vector<std::vector<float>> timing_offsets_;
+
+  std::array<int, 128> scan_pc_next_indexes_;
+  std::array<int, 128> overflow_pc_next_indexes_;
 };
 
 }  // namespace vls128

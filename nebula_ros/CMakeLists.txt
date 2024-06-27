@@ -24,14 +24,29 @@ find_package(nebula_hw_interfaces REQUIRED)
 find_package(yaml-cpp REQUIRED)
 find_package(robosense_msgs REQUIRED)
 
+find_package(CUDA)
+
+if(NOT ${CUDA_FOUND})
+        message(WARNING "cuda was not found, so nebula_ros will be built without cuda support.")
+else()
+        add_compile_definitions(CUDA_AVAILABLE)
+endif()
+
+
+
 include_directories(
         include
         SYSTEM
         ${YAML_CPP_INCLUDE_DIRS}
         ${PCL_INCLUDE_DIRS}
         ${PCL_COMMON_INCLUDE_DIRS}
+        ${CUDA_INCLUDE_DIRS}
 )
-link_libraries(${YAML_CPP_LIBRARIES} ${PCL_LIBRARIES})
+link_libraries(
+        ${YAML_CPP_LIBRARIES}
+        ${PCL_LIBRARIES}
+        ${CUDA_LIBRARIES}
+)
 ## Hesai
 # Hw Interface
 ament_auto_add_library(hesai_hw_ros_wrapper SHARED
